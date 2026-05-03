@@ -12,3 +12,10 @@ count.txt
 .vinxi
 __unconfig*
 todos.json
+.temp
+.turbo
+coverage
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo

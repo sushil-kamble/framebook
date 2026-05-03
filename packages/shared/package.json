@@ -1,0 +1,12 @@
+{
+  "name": "@framebook/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./config/app": "./src/config/app.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

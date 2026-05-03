@@ -1,0 +1,18 @@
+{
+  "name": "@framebook/server",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#app/*": "./src/app/*",
+    "#domains/*": "./src/domains/*",
+    "#infra/*": "./src/infrastructure/*",
+    "#testing/*": "./src/testing/*"
+  },
+  "scripts": {
+    "dev": "node src/index.mjs",
+    "start": "node src/index.mjs",
+    "test": "vitest run --config vitest.config.mjs",
+    "typecheck": "node -e \"console.log('No TypeScript sources in @framebook/server yet')\""
+  },
+  "dependencies": {}
+}
