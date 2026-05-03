@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./config/app": "./src/config/app.ts"
+    "./config/app": "./src/config/app.ts",
+    "./contracts/framebook": "./src/contracts/framebook.ts"
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
