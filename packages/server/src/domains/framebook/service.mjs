@@ -1,8 +1,10 @@
-import path from 'node:path'
-import { enhancePrompt } from './enhancer.mjs'
-import { isAspectRatio, isEnhancerMode } from './constants.mjs'
-import { createFramebookStore } from './storage.mjs'
-import { createCodexClient } from '#infra/agent-clients/codex.mjs'
+import path from "node:path"
+import { enhancePrompt } from "./enhancer.mjs"
+import { isAspectRatio, isEnhancerMode } from "./constants.mjs"
+import { createFramebookStore } from "./storage.mjs"
+import { createCodexClient } from "#infra/agent-clients/codex.mjs"
+
+const resolutionPresets = new Set(["1k", "2k", "4k"])
 
 export function createFramebookService({
   store = createFramebookStore(),
@@ -10,7 +12,10 @@ export function createFramebookService({
   autoRunJobs = true,
 } = {}) {
   async function listTopics({ includeArchived = false } = {}) {
-    const [topics, images] = await Promise.all([store.listTopics(), store.listImages()])
+    const [topics, images] = await Promise.all([
+      store.listTopics(),
+      store.listImages(),
+    ])
     return topics
       .filter((topic) => includeArchived || !topic.archivedAt)
       .map((topic) => summarizeTopic(topic, images))
@@ -22,7 +27,7 @@ export function createFramebookService({
     const topic = topics.find((candidate) => candidate.id === topicId)
 
     if (!topic) {
-      throw notFound('Topic not found')
+      throw notFound("Topic not found")
     }
 
     const images = await store.listImages()
@@ -33,9 +38,12 @@ export function createFramebookService({
     const now = new Date().toISOString()
     const topic = {
       id: store.createId(),
-      name: requireText(input.name, 'Topic name is required'),
+      name: requireText(input.name, "Topic name is required"),
       description: optionalText(input.description),
-      instruction: requireText(input.instruction, 'Topic instruction is required'),
+      instruction: requireText(
+        input.instruction,
+        "Topic instruction is required"
+      ),
       defaultAspectRatio: requireAspectRatio(input.defaultAspectRatio),
       basePromptDetails: optionalText(input.basePromptDetails),
       enhancerMode: requireEnhancerMode(input.enhancerMode),
@@ -54,19 +62,24 @@ export function createFramebookService({
     const topicIndex = topics.findIndex((topic) => topic.id === topicId)
 
     if (topicIndex === -1) {
-      throw notFound('Topic not found')
+      throw notFound("Topic not found")
     }
 
     const current = topics[topicIndex]
     const updated = {
       ...current,
-      name: input.name === undefined ? current.name : requireText(input.name, 'Topic name is required'),
+      name:
+        input.name === undefined
+          ? current.name
+          : requireText(input.name, "Topic name is required"),
       description:
-        input.description === undefined ? current.description : optionalText(input.description),
+        input.description === undefined
+          ? current.description
+          : optionalText(input.description),
       instruction:
         input.instruction === undefined
           ? current.instruction
-          : requireText(input.instruction, 'Topic instruction is required'),
+          : requireText(input.instruction, "Topic instruction is required"),
       defaultAspectRatio:
         input.defaultAspectRatio === undefined
           ? current.defaultAspectRatio
@@ -93,12 +106,32 @@ export function createFramebookService({
     const topicIndex = topics.findIndex((topic) => topic.id === topicId)
 
     if (topicIndex === -1) {
-      throw notFound('Topic not found')
+      throw notFound("Topic not found")
     }
 
     const updated = {
       ...topics[topicIndex],
       archivedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    topics[topicIndex] = updated
+    await store.writeTopics(topics)
+    const images = await store.listImages()
+    return summarizeTopic(updated, images)
+  }
+
+  async function unarchiveTopic(topicId) {
+    const topics = await store.listTopics()
+    const topicIndex = topics.findIndex((topic) => topic.id === topicId)
+
+    if (topicIndex === -1) {
+      throw notFound("Topic not found")
+    }
+
+    const updated = {
+      ...topics[topicIndex],
+      archivedAt: null,
       updatedAt: new Date().toISOString(),
     }
 
@@ -125,19 +158,27 @@ export function createFramebookService({
       topicId: topic.id,
       generationJobId: input.generationJobId ?? null,
       title: titleFromPrompt(input.rawPrompt),
-      rawPrompt: requireText(input.rawPrompt, 'Raw prompt is required'),
-      enhancedPrompt: requireText(input.enhancedPrompt, 'Enhanced prompt is required'),
-      finalPrompt: requireText(input.finalPrompt, 'Final prompt is required'),
+      rawPrompt: requireText(input.rawPrompt, "Raw prompt is required"),
+      enhancedPrompt: requireText(
+        input.enhancedPrompt,
+        "Enhanced prompt is required"
+      ),
+      finalPrompt: requireText(input.finalPrompt, "Final prompt is required"),
       aspectRatio: requireAspectRatio(input.aspectRatio),
-      enhancerMode: requireEnhancerMode(input.enhancerMode || topic.enhancerMode),
+      enhancerMode: requireEnhancerMode(
+        input.enhancerMode || topic.enhancerMode
+      ),
       topicSnapshot: snapshotTopic(topic),
       favorite: Boolean(input.favorite),
-      fileName: requireText(input.fileName, 'Image file name is required'),
-      mimeType: input.mimeType || 'image/png',
+      fileName: requireText(input.fileName, "Image file name is required"),
+      mimeType: input.mimeType || "image/png",
       createdAt: input.createdAt || now,
     }
 
-    const [topics, images] = await Promise.all([store.listTopics(), store.listImages()])
+    const [topics, images] = await Promise.all([
+      store.listTopics(),
+      store.listImages(),
+    ])
     await store.writeImages([...images, record])
     await touchTopic(topics, topic.id, record.createdAt)
     return record
@@ -148,12 +189,15 @@ export function createFramebookService({
     const imageIndex = images.findIndex((image) => image.id === imageId)
 
     if (imageIndex === -1) {
-      throw notFound('Image not found')
+      throw notFound("Image not found")
     }
 
     const updated = {
       ...images[imageIndex],
-      favorite: input.favorite === undefined ? images[imageIndex].favorite : Boolean(input.favorite),
+      favorite:
+        input.favorite === undefined
+          ? images[imageIndex].favorite
+          : Boolean(input.favorite),
     }
 
     images[imageIndex] = updated
@@ -166,7 +210,7 @@ export function createFramebookService({
     const image = images.find((candidate) => candidate.id === imageId)
 
     if (!image) {
-      throw notFound('Image not found')
+      throw notFound("Image not found")
     }
 
     return image
@@ -174,18 +218,21 @@ export function createFramebookService({
 
   async function getImageFile(imageId) {
     const image = await getImage(imageId)
-    const filePath = path.join(store.getTopicAssetDir(image.topicId), image.fileName)
+    const filePath = path.join(
+      store.getTopicAssetDir(image.topicId),
+      image.fileName
+    )
     return { filePath, mimeType: image.mimeType, image }
   }
 
   async function enhanceTopicPrompt(topicId, input) {
     const topic = await ensureTopic(topicId)
-    const rawPrompt = requireText(input.rawPrompt, 'Raw prompt is required')
+    const rawPrompt = requireText(input.rawPrompt, "Raw prompt is required")
     const aspectRatio = input.aspectRatio
       ? requireAspectRatio(input.aspectRatio)
       : topic.defaultAspectRatio
     const enhancedPrompt =
-      typeof codexClient.enhancePrompt === 'function'
+      typeof codexClient.enhancePrompt === "function"
         ? await codexClient.enhancePrompt({ topic, rawPrompt, aspectRatio })
         : enhancePrompt({ topic, rawPrompt, aspectRatio })
 
@@ -198,7 +245,7 @@ export function createFramebookService({
 
   async function createGeneration(topicId, input) {
     const topic = await ensureTopic(topicId)
-    const rawPrompt = requireText(input.rawPrompt, 'Raw prompt is required')
+    const rawPrompt = requireText(input.rawPrompt, "Raw prompt is required")
     const aspectRatio = input.aspectRatio
       ? requireAspectRatio(input.aspectRatio)
       : topic.defaultAspectRatio
@@ -209,11 +256,12 @@ export function createFramebookService({
     const job = {
       id: store.createId(),
       topicId: topic.id,
-      status: 'queued',
+      status: "queued",
       rawPrompt,
       enhancedPrompt,
       finalPrompt: enhancedPrompt,
       aspectRatio,
+      resolutionPreset: requireResolutionPreset(input.resolutionPreset),
       imageId: null,
       error: null,
       createdAt: now,
@@ -239,7 +287,7 @@ export function createFramebookService({
     const job = jobs.find((candidate) => candidate.id === jobId)
 
     if (!job) {
-      throw notFound('Generation job not found')
+      throw notFound("Generation job not found")
     }
 
     return job
@@ -247,7 +295,7 @@ export function createFramebookService({
 
   async function runGenerationJob(jobId) {
     let job = await updateJob(jobId, {
-      status: 'running',
+      status: "running",
       error: null,
       updatedAt: new Date().toISOString(),
     })
@@ -260,6 +308,7 @@ export function createFramebookService({
         prompt: job.finalPrompt,
         rawPrompt: job.rawPrompt,
         aspectRatio: job.aspectRatio,
+        resolutionPreset: job.resolutionPreset,
         topic,
         outputDir,
         fileName,
@@ -277,15 +326,15 @@ export function createFramebookService({
       })
 
       job = await updateJob(job.id, {
-        status: 'succeeded',
+        status: "succeeded",
         imageId: image.id,
         error: null,
         updatedAt: new Date().toISOString(),
       })
     } catch (error) {
       job = await updateJob(job.id, {
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Generation failed',
+        status: "failed",
+        error: error instanceof Error ? error.message : "Generation failed",
         updatedAt: new Date().toISOString(),
       })
     }
@@ -298,7 +347,7 @@ export function createFramebookService({
     const topic = topics.find((candidate) => candidate.id === topicId)
 
     if (!topic) {
-      throw notFound('Topic not found')
+      throw notFound("Topic not found")
     }
 
     return topic
@@ -309,7 +358,7 @@ export function createFramebookService({
     const jobIndex = jobs.findIndex((candidate) => candidate.id === jobId)
 
     if (jobIndex === -1) {
-      throw notFound('Generation job not found')
+      throw notFound("Generation job not found")
     }
 
     const updated = { ...jobs[jobIndex], ...patch }
@@ -337,6 +386,7 @@ export function createFramebookService({
     createTopic,
     updateTopic,
     archiveTopic,
+    unarchiveTopic,
     listImages,
     addImageRecord,
     updateImage,
@@ -386,12 +436,12 @@ function requireText(value, message) {
 }
 
 function optionalText(value) {
-  return String(value ?? '').trim()
+  return String(value ?? "").trim()
 }
 
 function requireAspectRatio(value) {
   if (!isAspectRatio(value)) {
-    throw badRequest('Invalid aspect ratio')
+    throw badRequest("Invalid aspect ratio")
   }
 
   return value
@@ -399,14 +449,26 @@ function requireAspectRatio(value) {
 
 function requireEnhancerMode(value) {
   if (!isEnhancerMode(value)) {
-    throw badRequest('Invalid enhancer mode')
+    throw badRequest("Invalid enhancer mode")
+  }
+
+  return value
+}
+
+function requireResolutionPreset(value) {
+  if (value === undefined || value === null || value === "") {
+    return "1k"
+  }
+
+  if (!resolutionPresets.has(value)) {
+    throw badRequest("Invalid resolution preset")
   }
 
   return value
 }
 
 function titleFromPrompt(prompt) {
-  const normalized = String(prompt).replace(/\s+/g, ' ').trim()
+  const normalized = String(prompt).replace(/\s+/g, " ").trim()
   return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized
 }
 

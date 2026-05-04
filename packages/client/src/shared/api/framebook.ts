@@ -23,16 +23,21 @@ interface FramebookApiOptions {
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly status: number,
+    readonly status: number
   ) {
     super(message)
   }
 }
 
-export function createFramebookApi(options: Fetcher | FramebookApiOptions = {}) {
-  const fetcher = typeof options === "function" ? options : (options.fetcher ?? fetch)
+export function createFramebookApi(
+  options: Fetcher | FramebookApiOptions = {}
+) {
+  const fetcher =
+    typeof options === "function" ? options : (options.fetcher ?? fetch)
   const baseUrl =
-    typeof options === "function" ? "" : (options.baseUrl ?? defaultApiBaseUrl())
+    typeof options === "function"
+      ? ""
+      : (options.baseUrl ?? defaultApiBaseUrl())
 
   async function request<TResponse>(input: string, init?: RequestInit) {
     const response = await fetcher(framebookApiUrl(input, baseUrl), {
@@ -44,9 +49,9 @@ export function createFramebookApi(options: Fetcher | FramebookApiOptions = {}) 
     })
 
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null
+      const body = (await response.json().catch(() => null)) as {
+        error?: string
+      } | null
       throw new ApiError(body?.error || "Request failed", response.status)
     }
 
@@ -65,23 +70,34 @@ export function createFramebookApi(options: Fetcher | FramebookApiOptions = {}) 
       })
     },
     async updateTopic(topicId: string, input: UpdateTopicRequest) {
-      return request<TopicResponse>(`/api/topics/${encodeURIComponent(topicId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      })
+      return request<TopicResponse>(
+        `/api/topics/${encodeURIComponent(topicId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        }
+      )
     },
     async archiveTopic(topicId: string) {
       return request<TopicResponse>(
         `/api/topics/${encodeURIComponent(topicId)}/archive`,
         {
           method: "POST",
-        },
+        }
+      )
+    },
+    async unarchiveTopic(topicId: string) {
+      return request<TopicResponse>(
+        `/api/topics/${encodeURIComponent(topicId)}/unarchive`,
+        {
+          method: "POST",
+        }
       )
     },
     async listImages(topicId: string, favoriteOnly = false) {
       const query = favoriteOnly ? "?favorite=true" : ""
       return request<ImageListResponse>(
-        `/api/topics/${encodeURIComponent(topicId)}/images${query}`,
+        `/api/topics/${encodeURIComponent(topicId)}/images${query}`
       )
     },
     async enhancePrompt(topicId: string, input: EnhancePromptRequest) {
@@ -90,7 +106,7 @@ export function createFramebookApi(options: Fetcher | FramebookApiOptions = {}) 
         {
           method: "POST",
           body: JSON.stringify(input),
-        },
+        }
       )
     },
     async createGeneration(topicId: string, input: CreateGenerationRequest) {
@@ -99,29 +115,34 @@ export function createFramebookApi(options: Fetcher | FramebookApiOptions = {}) 
         {
           method: "POST",
           body: JSON.stringify(input),
-        },
+        }
       )
     },
     async getGenerationJob(jobId: string) {
       return request<GenerationJobResponse>(
-        `/api/generation-jobs/${encodeURIComponent(jobId)}`,
+        `/api/generation-jobs/${encodeURIComponent(jobId)}`
       )
     },
     async updateImage(imageId: string, input: UpdateImageRequest) {
-      return request<ImageResponse>(`/api/images/${encodeURIComponent(imageId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      })
+      return request<ImageResponse>(
+        `/api/images/${encodeURIComponent(imageId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        }
+      )
     },
     async getImage(imageId: string) {
-      return request<ImageResponse>(`/api/images/${encodeURIComponent(imageId)}`)
+      return request<ImageResponse>(
+        `/api/images/${encodeURIComponent(imageId)}`
+      )
     },
     async revealImage(imageId: string) {
       return request<RevealImageResponse>(
         `/api/images/${encodeURIComponent(imageId)}/reveal`,
         {
           method: "POST",
-        },
+        }
       )
     },
   }
@@ -137,7 +158,9 @@ export function framebookApiUrl(input: string, baseUrl = defaultApiBaseUrl()) {
 
 function defaultApiBaseUrl() {
   const env = import.meta.env
-  return env.VITE_FRAMEBOOK_API_BASE_URL ?? (env.DEV ? "http://127.0.0.1:8787" : "")
+  return (
+    env.VITE_FRAMEBOOK_API_BASE_URL ?? (env.DEV ? "http://127.0.0.1:8787" : "")
+  )
 }
 
 export const framebookApi = createFramebookApi({

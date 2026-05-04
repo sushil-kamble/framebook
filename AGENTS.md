@@ -60,8 +60,11 @@ Run `pnpm build` when changing package structure, build config, routing, or serv
 - Keep the existing theme and design-token setup in `packages/client/src/app/styles/index.css`.
 - Do not copy UI components from other projects unless explicitly requested.
 - Put route files under `packages/client/src/routes`.
+- Framebook is the client application, not a feature module. Put app-specific screens, shell, and orchestration under `packages/client/src/app`.
+- Put app-specific React components under `packages/client/src/app/components`.
+- Put app-specific client helpers, form helpers, constants, and local app types under `packages/client/src/app/lib`.
 - Put shared client utilities under `packages/client/src/shared`.
-- Use feature folders under `packages/client/src/features` as the app grows.
+- Do not create `packages/client/src/features` unless the product later grows separate, independently owned feature areas.
 
 ## Server Guidance
 

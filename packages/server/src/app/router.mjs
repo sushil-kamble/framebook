@@ -1,143 +1,182 @@
-import { createReadStream } from 'node:fs'
-import { spawn } from 'node:child_process'
-import { corsHeaders, sendJson, readJsonBody, sendNoContent } from '#infra/http/http.mjs'
-import { createFramebookService } from '#domains/framebook/service.mjs'
+import { createReadStream } from "node:fs"
+import { spawn } from "node:child_process"
+import {
+  corsHeaders,
+  sendJson,
+  readJsonBody,
+  sendNoContent,
+} from "#infra/http/http.mjs"
+import { createFramebookService } from "#domains/framebook/service.mjs"
 
 let framebookService
 
 export async function routeRequest(request, response) {
-  const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+  const url = new URL(request.url ?? "/", "http://127.0.0.1")
   const pathname = url.pathname
 
   try {
-    if (request.method === 'OPTIONS') {
+    if (request.method === "OPTIONS") {
       sendNoContent(response)
       return
     }
 
-    if (pathname === '/api/health' && request.method === 'GET') {
+    if (pathname === "/api/health" && request.method === "GET") {
       const service = getFramebookService()
       sendJson(response, 200, {
         ok: true,
         dataDir: service.dataDir,
         dbPath: service.dbPath,
         codexAppServerConfigured: true,
-        codexAppServerCommand: process.env.FRAMEBOOK_CODEX_BIN || 'codex',
+        codexAppServerCommand: process.env.FRAMEBOOK_CODEX_BIN || "codex",
       })
       return
     }
 
-    if (pathname === '/api/topics' && request.method === 'GET') {
+    if (pathname === "/api/topics" && request.method === "GET") {
       const topics = await getFramebookService().listTopics({
-        includeArchived: url.searchParams.get('includeArchived') === 'true',
+        includeArchived: url.searchParams.get("includeArchived") === "true",
       })
       sendJson(response, 200, { topics })
       return
     }
 
-    if (pathname === '/api/topics' && request.method === 'POST') {
-      const topic = await getFramebookService().createTopic(await readJsonBody(request))
+    if (pathname === "/api/topics" && request.method === "POST") {
+      const topic = await getFramebookService().createTopic(
+        await readJsonBody(request)
+      )
       sendJson(response, 201, { topic })
       return
     }
 
     const topicMatch = pathname.match(/^\/api\/topics\/([^/]+)$/u)
-    if (topicMatch && request.method === 'GET') {
-      const topic = await getFramebookService().getTopic(decodeURIComponent(topicMatch[1]))
-      sendJson(response, 200, { topic })
-      return
-    }
-
-    if (topicMatch && request.method === 'PATCH') {
-      const topic = await getFramebookService().updateTopic(
-        decodeURIComponent(topicMatch[1]),
-        await readJsonBody(request),
+    if (topicMatch && request.method === "GET") {
+      const topic = await getFramebookService().getTopic(
+        decodeURIComponent(topicMatch[1])
       )
       sendJson(response, 200, { topic })
       return
     }
 
-    const topicArchiveMatch = pathname.match(/^\/api\/topics\/([^/]+)\/archive$/u)
-    if (topicArchiveMatch && request.method === 'POST') {
-      const topic = await getFramebookService().archiveTopic(decodeURIComponent(topicArchiveMatch[1]))
+    if (topicMatch && request.method === "PATCH") {
+      const topic = await getFramebookService().updateTopic(
+        decodeURIComponent(topicMatch[1]),
+        await readJsonBody(request)
+      )
+      sendJson(response, 200, { topic })
+      return
+    }
+
+    const topicArchiveMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/archive$/u
+    )
+    if (topicArchiveMatch && request.method === "POST") {
+      const topic = await getFramebookService().archiveTopic(
+        decodeURIComponent(topicArchiveMatch[1])
+      )
+      sendJson(response, 200, { topic })
+      return
+    }
+
+    const topicUnarchiveMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/unarchive$/u
+    )
+    if (topicUnarchiveMatch && request.method === "POST") {
+      const topic = await getFramebookService().unarchiveTopic(
+        decodeURIComponent(topicUnarchiveMatch[1])
+      )
       sendJson(response, 200, { topic })
       return
     }
 
     const topicImagesMatch = pathname.match(/^\/api\/topics\/([^/]+)\/images$/u)
-    if (topicImagesMatch && request.method === 'GET') {
-      const images = await getFramebookService().listImages(decodeURIComponent(topicImagesMatch[1]), {
-        favoriteOnly: url.searchParams.get('favorite') === 'true',
-      })
+    if (topicImagesMatch && request.method === "GET") {
+      const images = await getFramebookService().listImages(
+        decodeURIComponent(topicImagesMatch[1]),
+        {
+          favoriteOnly: url.searchParams.get("favorite") === "true",
+        }
+      )
       sendJson(response, 200, { images })
       return
     }
 
-    const promptMatch = pathname.match(/^\/api\/topics\/([^/]+)\/prompt\/enhance$/u)
-    if (promptMatch && request.method === 'POST') {
+    const promptMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/prompt\/enhance$/u
+    )
+    if (promptMatch && request.method === "POST") {
       const result = await getFramebookService().enhanceTopicPrompt(
         decodeURIComponent(promptMatch[1]),
-        await readJsonBody(request),
+        await readJsonBody(request)
       )
       sendJson(response, 200, result)
       return
     }
 
-    const generationMatch = pathname.match(/^\/api\/topics\/([^/]+)\/generations$/u)
-    if (generationMatch && request.method === 'POST') {
+    const generationMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/generations$/u
+    )
+    if (generationMatch && request.method === "POST") {
       const job = await getFramebookService().createGeneration(
         decodeURIComponent(generationMatch[1]),
-        await readJsonBody(request),
+        await readJsonBody(request)
       )
       sendJson(response, 202, { job })
       return
     }
 
     const jobMatch = pathname.match(/^\/api\/generation-jobs\/([^/]+)$/u)
-    if (jobMatch && request.method === 'GET') {
-      const job = await getFramebookService().getGenerationJob(decodeURIComponent(jobMatch[1]))
+    if (jobMatch && request.method === "GET") {
+      const job = await getFramebookService().getGenerationJob(
+        decodeURIComponent(jobMatch[1])
+      )
       sendJson(response, 200, { job })
       return
     }
 
     const imageMatch = pathname.match(/^\/api\/images\/([^/]+)$/u)
-    if (imageMatch && request.method === 'GET') {
-      const image = await getFramebookService().getImage(decodeURIComponent(imageMatch[1]))
+    if (imageMatch && request.method === "GET") {
+      const image = await getFramebookService().getImage(
+        decodeURIComponent(imageMatch[1])
+      )
       sendJson(response, 200, { image })
       return
     }
 
-    if (imageMatch && request.method === 'PATCH') {
+    if (imageMatch && request.method === "PATCH") {
       const image = await getFramebookService().updateImage(
         decodeURIComponent(imageMatch[1]),
-        await readJsonBody(request),
+        await readJsonBody(request)
       )
       sendJson(response, 200, { image })
       return
     }
 
     const imageFileMatch = pathname.match(/^\/api\/images\/([^/]+)\/file$/u)
-    if (imageFileMatch && request.method === 'GET') {
+    if (imageFileMatch && request.method === "GET") {
       const { filePath, mimeType } = await getFramebookService().getImageFile(
-        decodeURIComponent(imageFileMatch[1]),
+        decodeURIComponent(imageFileMatch[1])
       )
-      response.writeHead(200, { ...corsHeaders(), 'content-type': mimeType })
+      response.writeHead(200, { ...corsHeaders(), "content-type": mimeType })
       createReadStream(filePath).pipe(response)
       return
     }
 
     const revealMatch = pathname.match(/^\/api\/images\/([^/]+)\/reveal$/u)
-    if (revealMatch && request.method === 'POST') {
-      const { filePath } = await getFramebookService().getImageFile(decodeURIComponent(revealMatch[1]))
+    if (revealMatch && request.method === "POST") {
+      const { filePath } = await getFramebookService().getImageFile(
+        decodeURIComponent(revealMatch[1])
+      )
       const revealed = revealPath(filePath)
       sendJson(response, 200, { path: filePath, revealed })
       return
     }
 
-    sendJson(response, 404, { error: 'Not Found' })
+    sendJson(response, 404, { error: "Not Found" })
   } catch (error) {
-    const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500
-    const message = statusCode === 500 ? 'Internal Server Error' : error.message
+    const statusCode = Number.isInteger(error.statusCode)
+      ? error.statusCode
+      : 500
+    const message = statusCode === 500 ? "Internal Server Error" : error.message
 
     if (statusCode === 500) {
       console.error(error)
@@ -157,14 +196,14 @@ export function setFramebookServiceForTesting(service) {
 }
 
 function revealPath(filePath) {
-  if (process.env.FRAMEBOOK_DISABLE_REVEAL === '1') {
+  if (process.env.FRAMEBOOK_DISABLE_REVEAL === "1") {
     return false
   }
 
-  const opener = process.platform === 'darwin' ? 'open' : 'xdg-open'
+  const opener = process.platform === "darwin" ? "open" : "xdg-open"
   const child = spawn(opener, [filePath], {
     detached: true,
-    stdio: 'ignore',
+    stdio: "ignore",
   })
   child.unref()
   return true

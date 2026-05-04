@@ -2,6 +2,10 @@ export const aspectRatios = ["1:1", "3:4", "4:3", "16:9"] as const
 
 export type AspectRatio = (typeof aspectRatios)[number]
 
+export const resolutionPresets = ["1k", "2k", "4k"] as const
+
+export type ResolutionPreset = (typeof resolutionPresets)[number]
+
 export const enhancerModes = [
   "balanced",
   "storyboard",
@@ -67,6 +71,7 @@ export interface GenerationJob {
   enhancedPrompt: string
   finalPrompt: string
   aspectRatio: AspectRatio
+  resolutionPreset: ResolutionPreset
   imageId: string | null
   error: string | null
   createdAt: string
@@ -115,6 +120,7 @@ export interface CreateGenerationRequest {
   rawPrompt: string
   enhancedPrompt?: string
   aspectRatio?: AspectRatio
+  resolutionPreset?: ResolutionPreset
 }
 
 export interface GenerationJobResponse {

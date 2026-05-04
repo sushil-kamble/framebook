@@ -13,8 +13,8 @@
       "#/*": ["./src/*"],
       "@/*": ["./src/*"],
       "@app/*": ["./src/app/*"],
+      "@framebook/shared/*": ["../shared/src/*"],
       "@entities/*": ["./src/entities/*"],
-      "@features/*": ["./src/features/*"],
       "@routes/*": ["./src/routes/*"],
       "@shared/*": ["./src/shared/*"]
     }

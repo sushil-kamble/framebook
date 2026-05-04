@@ -65,9 +65,12 @@ Run `pnpm build` after changes to package structure, Vite/TanStack config, routi
 - Preserve the current theme in `packages/client/src/app/styles/index.css`.
 - Do not copy UI components from Agent Todo or other apps unless explicitly requested.
 - Route files belong in `packages/client/src/routes`.
-- App-level shell/router/style code belongs in `packages/client/src/app`.
-- Feature code should grow under `packages/client/src/features`.
+- Framebook is the client application, not a nested feature module.
+- App-specific shell, screens, orchestration, and app code belong in `packages/client/src/app`.
+- App-specific React components belong in `packages/client/src/app/components`.
+- App-specific helpers, form helpers, constants, and local app types belong in `packages/client/src/app/lib`.
 - Reusable client utilities belong in `packages/client/src/shared`.
+- Do not create `packages/client/src/features` unless the product later grows separate, independently owned feature areas.
 
 ## Server Notes
 

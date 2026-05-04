@@ -4,12 +4,14 @@ import { createFramebookApi } from "../src/shared/api/framebook"
 describe("framebook api client", () => {
   it("creates topics through the expected endpoint", async () => {
     const fetcher = vi.fn(() =>
-      Promise.resolve(Response.json({
-        topic: {
-          id: "topic-1",
-          name: "Travel Poster Study",
-        },
-      })),
+      Promise.resolve(
+        Response.json({
+          topic: {
+            id: "topic-1",
+            name: "Travel Poster Study",
+          },
+        })
+      )
     ) as unknown as typeof fetch
     const api = createFramebookApi(fetcher)
 
@@ -27,13 +29,15 @@ describe("framebook api client", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining("Travel Poster Study"),
-      }),
+      })
     )
   })
 
   it("surfaces api error messages", async () => {
     const fetcher = vi.fn(() =>
-      Promise.resolve(Response.json({ error: "Topic name is required" }, { status: 400 })),
+      Promise.resolve(
+        Response.json({ error: "Topic name is required" }, { status: 400 })
+      )
     ) as unknown as typeof fetch
     const api = createFramebookApi(fetcher)
 
@@ -45,7 +49,7 @@ describe("framebook api client", () => {
 
   it("encodes topic ids for nested routes", async () => {
     const fetcher = vi.fn(() =>
-      Promise.resolve(Response.json({ images: [] })),
+      Promise.resolve(Response.json({ images: [] }))
     ) as unknown as typeof fetch
     const api = createFramebookApi(fetcher)
 
@@ -53,13 +57,13 @@ describe("framebook api client", () => {
 
     expect(fetcher).toHaveBeenCalledWith(
       "/api/topics/topic%2Fwith%20slash/images?favorite=true",
-      expect.any(Object),
+      expect.any(Object)
     )
   })
 
   it("can request archived topics", async () => {
     const fetcher = vi.fn(() =>
-      Promise.resolve(Response.json({ topics: [] })),
+      Promise.resolve(Response.json({ topics: [] }))
     ) as unknown as typeof fetch
     const api = createFramebookApi(fetcher)
 
@@ -67,7 +71,23 @@ describe("framebook api client", () => {
 
     expect(fetcher).toHaveBeenCalledWith(
       "/api/topics?includeArchived=true",
-      expect.any(Object),
+      expect.any(Object)
+    )
+  })
+
+  it("unarchives topics through the expected endpoint", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ topic: { id: "topic-1" } }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.unarchiveTopic("topic/with slash")
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic%2Fwith%20slash/unarchive",
+      expect.objectContaining({
+        method: "POST",
+      })
     )
   })
 })

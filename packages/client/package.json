@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
+    "@fontsource-variable/syne": "^5.2.7",
     "@framebook/shared": "workspace:*",
     "@tanstack/react-devtools": "^0.10.0",
     "@tanstack/react-router": "^1.167.4",

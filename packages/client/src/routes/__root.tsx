@@ -26,9 +26,18 @@ export const Route = createRootRoute({
     ],
   }),
   notFoundComponent: () => (
-    <main className="container mx-auto p-4 pt-16">
-      <h1>404</h1>
-      <p>The requested page could not be found.</p>
+    <main className="mx-auto flex min-h-svh max-w-5xl items-center px-6 py-20">
+      <div className="rounded-3xl border border-border/70 bg-card/70 p-8 shadow-sm ring-1 ring-white/5">
+        <p className="text-xs font-medium tracking-[0.24em] text-muted-foreground uppercase">
+          404
+        </p>
+        <h1 className="mt-3 font-heading text-5xl tracking-[-0.06em] text-foreground">
+          Page not found.
+        </h1>
+        <p className="mt-3 max-w-md text-sm text-muted-foreground">
+          The requested page could not be found.
+        </p>
+      </div>
     </main>
   ),
   shellComponent: RootDocument,
@@ -36,11 +45,11 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {children}
         <TanStackDevtools
           config={{

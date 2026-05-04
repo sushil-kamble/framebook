@@ -1,32 +1,35 @@
-import { spawn } from 'node:child_process'
-import { EventEmitter } from 'node:events'
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
-import readline from 'node:readline'
+import { spawn } from "node:child_process"
+import { EventEmitter } from "node:events"
+import { promises as fs } from "node:fs"
+import path from "node:path"
+import readline from "node:readline"
 
-const defaultModel = 'gpt-5.5'
-const defaultEffort = 'medium'
+const defaultModel = "gpt-5.5"
+const defaultEffort = "medium"
 const defaultTimeoutMs = 10 * 60 * 1000
-const pngMimeType = 'image/png'
+const pngMimeType = "image/png"
 const onePixelPng = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-  'base64',
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64"
 )
 
 export function createCodexClient({ env = process.env } = {}) {
   return new CodexAppServerImageClient({
-    command: env.FRAMEBOOK_CODEX_BIN || 'codex',
+    command: env.FRAMEBOOK_CODEX_BIN || "codex",
     cwd: env.FRAMEBOOK_CODEX_CWD || process.cwd(),
     env,
     model: env.FRAMEBOOK_CODEX_MODEL || defaultModel,
     effort: env.FRAMEBOOK_CODEX_EFFORT || defaultEffort,
-    timeoutMs: readPositiveInteger(env.FRAMEBOOK_CODEX_TIMEOUT_MS, defaultTimeoutMs),
+    timeoutMs: readPositiveInteger(
+      env.FRAMEBOOK_CODEX_TIMEOUT_MS,
+      defaultTimeoutMs
+    ),
   })
 }
 
 export function createFakeCodexClient() {
   return {
-    name: 'fake-codex-app-server',
+    name: "fake-codex-app-server",
     async generateImage({ outputDir, fileName }) {
       await fs.mkdir(outputDir, { recursive: true })
       const targetFileName = ensurePngFileName(fileName || `${Date.now()}.png`)
@@ -44,8 +47,8 @@ export function createFakeCodexClient() {
 
 export class CodexAppServerImageClient {
   constructor(options = {}) {
-    this.name = 'codex-app-server'
-    this.command = options.command || 'codex'
+    this.name = "codex-app-server"
+    this.command = options.command || "codex"
     this.cwd = options.cwd || process.cwd()
     this.env = options.env || process.env
     this.model = options.model || defaultModel
@@ -53,7 +56,15 @@ export class CodexAppServerImageClient {
     this.timeoutMs = options.timeoutMs || defaultTimeoutMs
   }
 
-  async generateImage({ prompt, rawPrompt, aspectRatio, topic, outputDir, fileName }) {
+  async generateImage({
+    prompt,
+    rawPrompt,
+    aspectRatio,
+    resolutionPreset,
+    topic,
+    outputDir,
+    fileName,
+  }) {
     await fs.mkdir(outputDir, { recursive: true })
     const targetFileName = ensurePngFileName(fileName || `${Date.now()}.png`)
     const outputPath = path.join(outputDir, targetFileName)
@@ -72,6 +83,7 @@ export class CodexAppServerImageClient {
           prompt,
           rawPrompt,
           aspectRatio,
+          resolutionPreset,
           topic,
           outputPath,
         }),
@@ -101,13 +113,17 @@ export class CodexAppServerImageClient {
     try {
       const result = await appServer.runTurn({
         developerInstructions: framebookPromptDeveloperInstructions(),
-        userText: buildPromptEnhancementPrompt({ topic, rawPrompt, aspectRatio }),
+        userText: buildPromptEnhancementPrompt({
+          topic,
+          rawPrompt,
+          aspectRatio,
+        }),
         timeoutMs: Math.min(this.timeoutMs, 120_000),
       })
       const enhancedPrompt = cleanCodexPromptResponse(result.responseText)
 
       if (!enhancedPrompt) {
-        throw new Error('Codex App Server did not return an enhanced prompt')
+        throw new Error("Codex App Server did not return an enhanced prompt")
       }
 
       return enhancedPrompt
@@ -131,17 +147,17 @@ export class CodexAppServerSession extends EventEmitter {
     this.activeTurnId = null
     this.proc = null
     this.reader = null
-    this.stderr = ''
-    this.responseText = ''
+    this.stderr = ""
+    this.responseText = ""
   }
 
   async runTurn({ developerInstructions, userText, timeoutMs }) {
     return withTimeout(
       new Promise((resolve, reject) => {
         const cleanup = () => {
-          this.off('turnCompleted', onCompleted)
-          this.off('sessionError', onError)
-          this.off('exit', onExit)
+          this.off("turnCompleted", onCompleted)
+          this.off("sessionError", onError)
+          this.off("exit", onExit)
         }
         const onCompleted = (event) => {
           cleanup()
@@ -153,12 +169,16 @@ export class CodexAppServerSession extends EventEmitter {
         }
         const onExit = ({ code, signal }) => {
           cleanup()
-          reject(new Error(`Codex App Server exited before completing the image turn (${code ?? signal})`))
+          reject(
+            new Error(
+              `Codex App Server exited before completing the image turn (${code ?? signal})`
+            )
+          )
         }
 
-        this.on('turnCompleted', onCompleted)
-        this.on('sessionError', onError)
-        this.on('exit', onExit)
+        this.on("turnCompleted", onCompleted)
+        this.on("sessionError", onError)
+        this.on("exit", onExit)
 
         this.start()
         this.initialize()
@@ -167,7 +187,8 @@ export class CodexAppServerSession extends EventEmitter {
           .catch(onError)
       }),
       timeoutMs,
-      () => `Codex App Server image generation timed out after ${Math.round(timeoutMs / 1000)}s`,
+      () =>
+        `Codex App Server image generation timed out after ${Math.round(timeoutMs / 1000)}s`
     )
   }
 
@@ -176,25 +197,29 @@ export class CodexAppServerSession extends EventEmitter {
       return
     }
 
-    this.proc = spawn(this.command, ['app-server'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
+    this.proc = spawn(this.command, ["app-server"], {
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: this.cwd,
       env: this.env,
     })
-    this.proc.on('error', (error) => {
-      this.emitSessionError(`Codex App Server failed to start: ${error.message}`)
+    this.proc.on("error", (error) => {
+      this.emitSessionError(
+        `Codex App Server failed to start: ${error.message}`
+      )
     })
-    this.proc.on('exit', (code, signal) => {
-      this.rejectPending(new Error(`Codex App Server exited (${code ?? signal})`))
-      this.emit('exit', { code, signal })
+    this.proc.on("exit", (code, signal) => {
+      this.rejectPending(
+        new Error(`Codex App Server exited (${code ?? signal})`)
+      )
+      this.emit("exit", { code, signal })
     })
-    this.proc.stderr.on('data', (data) => {
+    this.proc.stderr.on("data", (data) => {
       this.stderr += data.toString()
       process.stderr.write(`[framebook codex] ${data}`)
     })
 
     this.reader = readline.createInterface({ input: this.proc.stdout })
-    this.reader.on('line', (line) => {
+    this.reader.on("line", (line) => {
       if (!line.trim()) {
         return
       }
@@ -212,19 +237,19 @@ export class CodexAppServerSession extends EventEmitter {
   }
 
   async initialize() {
-    await this.request('initialize', {
-      clientInfo: { name: 'framebook', title: 'Framebook', version: '0.1.0' },
+    await this.request("initialize", {
+      clientInfo: { name: "framebook", title: "Framebook", version: "0.1.0" },
       capabilities: { experimentalApi: false, optOutNotificationMethods: [] },
     })
-    this.notify('initialized', {})
+    this.notify("initialized", {})
   }
 
   async startThread({ developerInstructions }) {
-    const result = await this.request('thread/start', {
+    const result = await this.request("thread/start", {
       cwd: this.cwd,
       model: this.model,
-      approvalPolicy: 'never',
-      sandbox: 'danger-full-access',
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
       developerInstructions,
       experimentalRawEvents: false,
       persistExtendedHistory: false,
@@ -235,12 +260,12 @@ export class CodexAppServerSession extends EventEmitter {
 
   async sendUserText(text) {
     if (!this.threadId) {
-      throw new Error('Codex App Server thread was not started')
+      throw new Error("Codex App Server thread was not started")
     }
 
-    return this.request('turn/start', {
+    return this.request("turn/start", {
       threadId: this.threadId,
-      input: [{ type: 'text', text, text_elements: [] }],
+      input: [{ type: "text", text, text_elements: [] }],
       model: this.model,
       effort: this.effort,
     })
@@ -252,7 +277,7 @@ export class CodexAppServerSession extends EventEmitter {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
       try {
-        this.send({ jsonrpc: '2.0', method, id, params })
+        this.send({ jsonrpc: "2.0", method, id, params })
       } catch (error) {
         this.pending.delete(id)
         reject(error)
@@ -261,19 +286,22 @@ export class CodexAppServerSession extends EventEmitter {
   }
 
   notify(method, params) {
-    this.send({ jsonrpc: '2.0', method, params })
+    this.send({ jsonrpc: "2.0", method, params })
   }
 
   send(message) {
     if (!this.proc?.stdin?.writable) {
-      throw new Error('Codex App Server stdin is not writable')
+      throw new Error("Codex App Server stdin is not writable")
     }
 
     this.proc.stdin.write(`${JSON.stringify(message)}\n`)
   }
 
   handleMessage(message) {
-    if (message.id !== undefined && (message.result !== undefined || message.error !== undefined)) {
+    if (
+      message.id !== undefined &&
+      (message.result !== undefined || message.error !== undefined)
+    ) {
       const pending = this.pending.get(message.id)
       if (!pending) {
         return
@@ -281,7 +309,9 @@ export class CodexAppServerSession extends EventEmitter {
 
       this.pending.delete(message.id)
       if (message.error) {
-        pending.reject(new Error(message.error.message || JSON.stringify(message.error)))
+        pending.reject(
+          new Error(message.error.message || JSON.stringify(message.error))
+        )
       } else {
         pending.resolve(message.result)
       }
@@ -301,41 +331,46 @@ export class CodexAppServerSession extends EventEmitter {
   handleServerRequest(message) {
     let result = {}
     if (
-      message.method === 'item/commandExecution/requestApproval' ||
-      message.method === 'item/fileChange/requestApproval' ||
-      message.method === 'item/permissions/requestApproval' ||
-      message.method === 'applyPatchApproval' ||
-      message.method === 'execCommandApproval'
+      message.method === "item/commandExecution/requestApproval" ||
+      message.method === "item/fileChange/requestApproval" ||
+      message.method === "item/permissions/requestApproval" ||
+      message.method === "applyPatchApproval" ||
+      message.method === "execCommandApproval"
     ) {
-      result = { decision: 'approved' }
+      result = { decision: "approved" }
     }
 
-    this.send({ jsonrpc: '2.0', id: message.id, result })
+    this.send({ jsonrpc: "2.0", id: message.id, result })
   }
 
   handleNotification(message) {
     switch (message.method) {
-      case 'thread/started':
+      case "thread/started":
         this.threadId = message.params?.thread?.id ?? this.threadId
         break
-      case 'turn/started':
+      case "turn/started":
         this.activeTurnId = message.params?.turn?.id ?? null
-        this.responseText = ''
+        this.responseText = ""
         break
-      case 'item/agentMessage/delta':
-        this.responseText += message.params?.delta ?? ''
+      case "item/agentMessage/delta":
+        this.responseText += message.params?.delta ?? ""
         break
-      case 'item/completed':
-        if (message.params?.item?.type === 'agent_message' && !this.responseText) {
+      case "item/completed":
+        if (
+          message.params?.item?.type === "agent_message" &&
+          !this.responseText
+        ) {
           this.responseText += extractAgentMessageText(message.params.item)
         }
         break
-      case 'turn/completed':
+      case "turn/completed":
         this.activeTurnId = null
-        this.emit('turnCompleted', { turn: message.params?.turn })
+        this.emit("turnCompleted", { turn: message.params?.turn })
         break
-      case 'error':
-        this.emitSessionError(message.params?.message || 'Codex App Server error')
+      case "error":
+        this.emitSessionError(
+          message.params?.message || "Codex App Server error"
+        )
         break
       default:
         break
@@ -343,8 +378,8 @@ export class CodexAppServerSession extends EventEmitter {
   }
 
   emitSessionError(message) {
-    const stderrHint = this.stderr.trim() ? `\n${this.stderr.trim()}` : ''
-    this.emit('sessionError', { message: `${message}${stderrHint}` })
+    const stderrHint = this.stderr.trim() ? `\n${this.stderr.trim()}` : ""
+    this.emit("sessionError", { message: `${message}${stderrHint}` })
   }
 
   rejectPending(error) {
@@ -362,18 +397,28 @@ export class CodexAppServerSession extends EventEmitter {
     }
 
     try {
-      this.proc?.kill('SIGTERM')
+      this.proc?.kill("SIGTERM")
     } catch {
       // The process may already be closed by the time cleanup runs.
     }
   }
 }
 
-export function buildImageGenerationPrompt({ prompt, rawPrompt, aspectRatio, topic, outputPath }) {
-  const topicDescription = topic.description ? `\nDescription: ${topic.description}` : ''
+export function buildImageGenerationPrompt({
+  prompt,
+  rawPrompt,
+  aspectRatio,
+  resolutionPreset,
+  topic,
+  outputPath,
+}) {
+  const topicDescription = topic.description
+    ? `\nDescription: ${topic.description}`
+    : ""
   const basePromptDetails = topic.basePromptDetails
     ? `\nReusable base prompt details: ${topic.basePromptDetails}`
-    : ''
+    : ""
+  const outputResolution = formatResolutionPreset(resolutionPreset)
 
   return `Generate exactly one Framebook image using the available image creation skill/tool.
 
@@ -383,6 +428,7 @@ Topic: ${topic.name}${topicDescription}
 Topic instruction: ${topic.instruction}${basePromptDetails}
 Enhancer mode: ${topic.enhancerMode}
 Aspect ratio: ${aspectRatio}
+Output resolution: ${outputResolution}
 
 Raw prompt:
 ${rawPrompt}
@@ -398,7 +444,23 @@ ${outputPath}
 - Reply with only the saved absolute path after the file exists.`
 }
 
-export function buildPromptEnhancementPrompt({ topic, rawPrompt, aspectRatio }) {
+function formatResolutionPreset(value) {
+  switch (value) {
+    case "2k":
+      return "High 2K resolution"
+    case "4k":
+      return "Ultra 4K resolution"
+    case "1k":
+    default:
+      return "Standard 1K resolution"
+  }
+}
+
+export function buildPromptEnhancementPrompt({
+  topic,
+  rawPrompt,
+  aspectRatio,
+}) {
   return `Rewrite the user's image prompt for OpenAI GPT image generation models. Return only the final enhanced prompt, with no markdown, no quotes, no explanation, and no preamble.
 
 Use these GPT image prompting rules:
@@ -414,7 +476,7 @@ Use these GPT image prompting rules:
 Topic context:
 Name: ${topic.name}
 Instruction: ${topic.instruction}
-Base details: ${topic.basePromptDetails || 'None'}
+Base details: ${topic.basePromptDetails || "None"}
 Enhancer mode: ${topic.enhancerMode}
 Aspect ratio: ${aspectRatio || topic.defaultAspectRatio}
 
@@ -433,53 +495,53 @@ function framebookPromptDeveloperInstructions() {
 }
 
 function cleanCodexPromptResponse(value) {
-  return String(value ?? '')
+  return String(value ?? "")
     .trim()
-    .replace(/^```(?:text)?/iu, '')
-    .replace(/```$/u, '')
+    .replace(/^```(?:text)?/iu, "")
+    .replace(/```$/u, "")
     .trim()
 }
 
 function extractAgentMessageText(item) {
-  if (typeof item.text === 'string') {
+  if (typeof item.text === "string") {
     return item.text
   }
 
-  if (typeof item.content === 'string') {
+  if (typeof item.content === "string") {
     return item.content
   }
 
   if (Array.isArray(item.content)) {
     return item.content
       .map((part) => {
-        if (typeof part === 'string') {
+        if (typeof part === "string") {
           return part
         }
 
-        return part?.text ?? ''
+        return part?.text ?? ""
       })
-      .join('')
+      .join("")
   }
 
-  return ''
+  return ""
 }
 
 function ensurePngFileName(fileName) {
   const normalized = String(fileName)
 
-  if (normalized.endsWith('.png')) {
+  if (normalized.endsWith(".png")) {
     return normalized
   }
 
   if (/\.[^.]+$/u.test(normalized)) {
-    return normalized.replace(/\.[^.]+$/u, '.png')
+    return normalized.replace(/\.[^.]+$/u, ".png")
   }
 
   return `${normalized}.png`
 }
 
 function readPositiveInteger(value, fallback) {
-  const parsed = Number.parseInt(String(value ?? ''), 10)
+  const parsed = Number.parseInt(String(value ?? ""), 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
@@ -493,7 +555,7 @@ async function waitForFile(filePath, timeoutMs) {
         return
       }
     } catch (error) {
-      if (error.code !== 'ENOENT') {
+      if (error.code !== "ENOENT") {
         throw error
       }
     }
@@ -501,7 +563,9 @@ async function waitForFile(filePath, timeoutMs) {
     await delay(250)
   }
 
-  throw new Error(`Codex App Server completed but did not create image file: ${filePath}`)
+  throw new Error(
+    `Codex App Server completed but did not create image file: ${filePath}`
+  )
 }
 
 function withTimeout(promise, timeoutMs, messageFactory) {

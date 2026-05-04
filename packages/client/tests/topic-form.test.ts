@@ -3,7 +3,7 @@ import {
   defaultTopicDraft,
   normalizeTopicDraft,
   validateTopicDraft,
-} from "../src/features/topics/topic-form"
+} from "../src/app/lib/topic-form"
 
 describe("topic form helpers", () => {
   it("requires a name and topic instruction", () => {
@@ -12,7 +12,7 @@ describe("topic form helpers", () => {
         ...defaultTopicDraft,
         name: " ",
         instruction: "",
-      }),
+      })
     ).toEqual({
       name: "Name is required.",
       instruction: "Topic instruction is required.",
@@ -25,7 +25,7 @@ describe("topic form helpers", () => {
         ...defaultTopicDraft,
         name: "  Monsoon Trip Story  ",
         description: "  Rainy hill-station trip  ",
-      }),
+      })
     ).toMatchObject({
       name: "Monsoon Trip Story",
       description: "Rainy hill-station trip",
