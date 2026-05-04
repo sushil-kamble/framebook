@@ -9,6 +9,12 @@ export type Screen =
 
 export type RouteScreen = Screen
 
+export interface FramebookRouteState {
+  routeScreen: RouteScreen
+  routeTopicId?: string
+  routeImageId?: string
+}
+
 export interface FramebookAppProps {
   routeScreen?: RouteScreen
   routeTopicId?: string

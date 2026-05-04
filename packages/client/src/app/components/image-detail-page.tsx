@@ -1,10 +1,16 @@
-import { Copy, Download, Eye, FolderOpen, Share2 } from "lucide-react"
+import {
+  ArrowLeft,
+  Copy,
+  Download,
+  Eye,
+  FolderOpen,
+  Share2,
+} from "lucide-react"
 import { toast } from "sonner"
 import { copyTextToClipboard } from "../lib/share"
 import { formatDate, imageFileUrl, modeLabel } from "../lib/utils"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
-import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { Skeleton } from "@/shared/ui/skeleton"
 
@@ -20,15 +26,7 @@ export function ImageDetailPage(props: {
   const image = props.image
 
   if (!image) {
-    return (
-      <div
-        className="mx-auto flex max-w-5xl flex-col gap-5"
-        aria-label="Loading image detail"
-      >
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-105 w-full rounded-3xl" />
-      </div>
-    )
+    return <ImageDetailSkeleton />
   }
 
   return (
@@ -42,52 +40,55 @@ export function ImageDetailPage(props: {
               { label: image.title },
             ]}
           />
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <Badge variant="secondary">{image.aspectRatio}</Badge>
-            <Badge variant={image.favorite ? "default" : "outline"}>
-              {image.favorite ? "Starred" : "Not starred"}
-            </Badge>
-            <Badge variant="outline">{modeLabel(image.enhancerMode)}</Badge>
-            <Badge variant="outline">{formatDate(image.createdAt)}</Badge>
-          </div>
         </div>
       </header>
 
       <section className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Button
-              variant="outline"
+              type="button"
+              variant="ghost"
               size="sm"
-              onClick={() => props.onPreviewImage(image)}
+              onClick={props.onBack}
             >
-              <Eye data-icon="inline-start" />
-              Preview
+              <ArrowLeft data-icon="inline-start" />
+              Back
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void props.onDownloadImage(image)}
-            >
-              <Download data-icon="inline-start" />
-              Download
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void props.onRevealImage(image)}
-            >
-              <FolderOpen data-icon="inline-start" />
-              Finder
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void props.onShareImage(image)}
-            >
-              <Share2 data-icon="inline-start" />
-              Share
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => props.onPreviewImage(image)}
+              >
+                <Eye data-icon="inline-start" />
+                Preview
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void props.onDownloadImage(image)}
+              >
+                <Download data-icon="inline-start" />
+                Download
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void props.onRevealImage(image)}
+              >
+                <FolderOpen data-icon="inline-start" />
+                Finder
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void props.onShareImage(image)}
+              >
+                <Share2 data-icon="inline-start" />
+                Share
+              </Button>
+            </div>
           </div>
           <button
             type="button"
@@ -107,7 +108,6 @@ export function ImageDetailPage(props: {
             label="Image generation prompt"
             value={image.finalPrompt}
           />
-          <PromptBlock label="User prompt" value={image.rawPrompt} />
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <MetaItem label="Topic" value={image.topicSnapshot.name} />
             <MetaItem label="Aspect ratio" value={image.aspectRatio} />
@@ -159,6 +159,69 @@ function MetaItem({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 truncate font-medium" title={value}>
         {value}
       </dd>
+    </div>
+  )
+}
+
+function ImageDetailSkeleton() {
+  return (
+    <div
+      className="mx-auto flex flex-col gap-5"
+      aria-label="Loading image detail"
+    >
+      {/* Breadcrumb */}
+      <header className="flex flex-col gap-3 border-b border-border/60 pb-4">
+        <div className="flex items-center gap-1.5">
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="size-1 rounded-full" />
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="size-1 rounded-full" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+      </header>
+
+      <section className="flex flex-col gap-5">
+        {/* Toolbar row */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Skeleton className="h-8 w-20 rounded-lg" />
+            <div className="flex flex-wrap justify-end gap-2">
+              <Skeleton className="h-8 w-24 rounded-lg" />
+              <Skeleton className="h-8 w-28 rounded-lg" />
+              <Skeleton className="h-8 w-24 rounded-lg" />
+              <Skeleton className="h-8 w-24 rounded-lg" />
+            </div>
+          </div>
+
+            {/* Image */}
+          <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-sm">
+            <Skeleton className="h-105 w-full rounded-none" />
+          </div>
+        </div>
+
+        {/* Metadata card */}
+        <div className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+          {/* Prompt block 1 */}
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-24 w-full rounded-xl" />
+          </div>
+          {/* Prompt block 2 */}
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+          {/* Meta grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {["a", "b", "c", "d", "e", "f"].map((k) => (
+              <div key={k} className="flex flex-col gap-1">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

@@ -678,6 +678,8 @@ describe("framebook service", () => {
     expect(prompt).toContain("photorealistic")
     expect(prompt).toContain("no watermark")
     expect(prompt).toContain("A product photo of a ceramic mug")
+    expect(prompt).not.toMatch(/intended use/iu)
+    expect(prompt).toContain("not labeled segments")
     expect(prompt).not.toMatch(/aspect ratio|1:1|resolution|quality/iu)
   })
 

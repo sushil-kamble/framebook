@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { formatDate, formatViewerTimestamp } from "../src/app/lib/utils"
+import {
+  formatDate,
+  formatViewerTimestamp,
+  routeStateFromPathname,
+} from "../src/app/lib/utils"
 
 describe("timestamp formatters", () => {
   afterEach(() => {
@@ -33,6 +37,25 @@ describe("timestamp formatters", () => {
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+    })
+  })
+})
+
+describe("route state parsing", () => {
+  it("maps topic subpage paths to Framebook screens", () => {
+    expect(routeStateFromPathname("/topics")).toEqual({
+      routeScreen: "topics",
+    })
+    expect(routeStateFromPathname("/topics/topic%201")).toEqual({
+      routeScreen: "topic",
+      routeTopicId: "topic 1",
+    })
+    expect(
+      routeStateFromPathname("/topics/topic%201/images/image%201")
+    ).toEqual({
+      routeScreen: "image-detail",
+      routeTopicId: "topic 1",
+      routeImageId: "image 1",
     })
   })
 })

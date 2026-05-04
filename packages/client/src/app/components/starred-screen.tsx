@@ -1,4 +1,4 @@
-import { ImageIcon, Info, Star } from "lucide-react"
+import { Eye, ImageIcon, Star } from "lucide-react"
 import { cn } from "@shared/lib/utils"
 import {
   formatDate,
@@ -65,8 +65,8 @@ export function StarredScreen({
                 <button
                   type="button"
                   className="block size-full text-left"
-                  onClick={() => onPreviewImage(image)}
-                  aria-label={`Preview ${image.title}`}
+                  onClick={() => onViewImageDetails(image)}
+                  aria-label={`View details for ${image.title}`}
                 >
                   <img
                     src={
@@ -104,11 +104,11 @@ export function StarredScreen({
                     type="button"
                     size="icon-sm"
                     variant="secondary"
-                    onClick={() => onViewImageDetails(image)}
-                    aria-label={`View details for ${image.title}`}
-                    title="View details"
+                    onClick={() => onPreviewImage(image)}
+                    aria-label={`Preview ${image.title}`}
+                    title="Preview"
                   >
-                    <Info />
+                    <Eye />
                   </Button>
                   <Button
                     type="button"

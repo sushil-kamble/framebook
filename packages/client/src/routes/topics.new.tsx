@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { FramebookApp } from "@app/framebook-app"
 
 export const Route = createFileRoute("/topics/new")({
-  component: NewTopicRoute,
+  component: EmptyRoute,
 })
 
-function NewTopicRoute() {
-  return <FramebookApp routeScreen="topic-editor" />
+function EmptyRoute() {
+  return null
 }

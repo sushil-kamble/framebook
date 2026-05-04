@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { FramebookApp } from "@app/framebook-app"
 
 export const Route = createFileRoute("/starred")({
-  component: StarredRoute,
+  component: EmptyRoute,
 })
 
-function StarredRoute() {
-  return <FramebookApp routeScreen="starred" />
+function EmptyRoute() {
+  return null
 }

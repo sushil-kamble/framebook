@@ -43,7 +43,6 @@ describe("optimized image grids", () => {
         topic={topicSummary}
         images={[imageRecord]}
         promptValue=""
-        hasGenerationPrompt={false}
         selectedAspectRatio="4:3"
         selectedResolutionPreset="1k"
         favoriteOnly={false}
@@ -102,6 +101,9 @@ describe("optimized image grids", () => {
     expect(detailContainer.querySelector("img")?.hasAttribute("srcset")).toBe(
       false
     )
+    expect(screen.getByText("Image generation prompt")).toBeTruthy()
+    expect(screen.queryByText("User prompt")).toBeNull()
+    expect(screen.queryByText(imageRecord.rawPrompt)).toBeNull()
     unmount()
 
     render(

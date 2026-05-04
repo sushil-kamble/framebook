@@ -5,7 +5,7 @@ import type {
   ImageRecord,
   ImageVariant,
 } from "@framebook/shared/contracts/framebook"
-import type { Screen } from "./types"
+import type { FramebookRouteState, Screen } from "./types"
 
 const imageVariantWidthPattern = /-(320|480|768|1024)w\.webp$/u
 
@@ -124,4 +124,56 @@ export function routeForScreen(screen: Screen, topicId?: string | null) {
   }
 
   return "/topics"
+}
+
+export function routeStateFromPathname(pathname: string): FramebookRouteState {
+  if (pathname === "/settings") {
+    return { routeScreen: "settings" }
+  }
+
+  if (pathname === "/starred" || pathname === "/gallery") {
+    return { routeScreen: "starred" }
+  }
+
+  if (pathname === "/topics/new") {
+    return { routeScreen: "topic-editor" }
+  }
+
+  const editMatch = pathname.match(/^\/topics\/([^/]+)\/edit$/u)
+  if (editMatch?.[1]) {
+    return {
+      routeScreen: "topic-editor",
+      routeTopicId: safeDecodePathSegment(editMatch[1]),
+    }
+  }
+
+  const imageDetailMatch = pathname.match(
+    /^\/topics\/([^/]+)\/images\/([^/]+)$/u
+  )
+  if (imageDetailMatch?.[1] && imageDetailMatch[2]) {
+    return {
+      routeScreen: "image-detail",
+      routeTopicId: safeDecodePathSegment(imageDetailMatch[1]),
+      routeImageId: safeDecodePathSegment(imageDetailMatch[2]),
+    }
+  }
+
+  const topicMatch = pathname.match(/^\/topics\/([^/]+)$/u)
+  if (topicMatch?.[1]) {
+    return {
+      routeScreen: "topic",
+      routeTopicId: safeDecodePathSegment(topicMatch[1]),
+    }
+  }
+
+  return { routeScreen: "topics" }
+}
+
+function safeDecodePathSegment(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    // Keep routing usable if the browser receives a malformed encoded segment.
+    return value
+  }
 }

@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { FramebookApp } from "@app/framebook-app"
 
 export const Route = createFileRoute("/settings")({
-  component: SettingsRoute,
+  component: EmptyRoute,
 })
 
-function SettingsRoute() {
-  return <FramebookApp routeScreen="settings" />
+function EmptyRoute() {
+  return null
 }

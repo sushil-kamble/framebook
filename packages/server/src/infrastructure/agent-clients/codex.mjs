@@ -503,14 +503,14 @@ export function buildPromptEnhancementPrompt({ topic, rawPrompt }) {
   return `Rewrite the user's image prompt for OpenAI GPT image generation models. Return only the final enhanced prompt, with no markdown, no quotes, no explanation, and no preamble.
 
 Use these GPT image prompting rules:
-- Structure the prompt in a maintainable order: intended use, scene or background, subject, key details, composition, lighting, materials, style, and constraints.
+- Structure the prompt in a maintainable order: scene or background, subject, key details, composition, lighting, materials, style, and constraints.
 - Preserve the user's original intent. Do not invent unrelated subjects.
 - Be concrete about materials, shapes, textures, visual medium, framing, viewpoint, mood, and focal point.
 - Include photorealistic or professional photography language only when it matches the user's intent.
 - If text should appear in the image, put exact visible text in quotes and specify placement, style, contrast, and size. Otherwise explicitly avoid unintended text.
 - Include constraints such as no watermark, no extra text, no logos or trademarks unless requested.
 - For cinematic, low-light, rain, neon, UI mockup, infographic, diagram, product, or multi-panel requests, add the layout details needed for controllable output.
-- Keep it editable and skimmable. Prefer one strong paragraph or short labeled segments, not a bloated essay.
+- Keep it editable and skimmable. Prefer one strong paragraph, not labeled segments or a bloated essay.
 - Output settings are handled later by Generate. Keep this rewrite limited to the visual intent and creative direction.
 
 Topic context:

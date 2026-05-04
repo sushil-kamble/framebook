@@ -8,6 +8,9 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
+    defaultViewTransition: {
+      types: ({ pathChanged }) => (pathChanged ? ["framebook-page"] : false),
+    },
   })
 
   return router

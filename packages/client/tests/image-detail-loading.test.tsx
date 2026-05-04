@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { FramebookApp } from "../src/app/framebook-app"
 
 vi.mock("@tanstack/react-router", () => ({
+  useLocation: () => ({ pathname: "/topics/topic-1/images/image-1" }),
   useNavigate: () => vi.fn(),
 }))
 

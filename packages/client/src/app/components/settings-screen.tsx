@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { Loader2, Monitor, RotateCcw } from "lucide-react"
 import { framebookApi, framebookApiUrl } from "@shared/api/framebook"
-import { formatDate, imageFileUrl, modeLabel } from "../lib/utils"
+import { formatDate, imageFileUrl } from "../lib/utils"
+import { AppBreadcrumb } from "./app-breadcrumb"
 import type {
   ImageRecord,
   TopicSummary,
@@ -100,241 +101,243 @@ export function SettingsScreen({
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      <h1 className="font-heading text-2xl font-bold tracking-tight">
-        Settings
-      </h1>
+    <div className="settings-stage relative min-h-svh overflow-hidden">
+      <div className="settings-vignette pointer-events-none absolute inset-0" />
 
-      <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-        <div className="mb-4 flex items-center gap-3 border-b border-border/40 pb-4">
-          <div className="grid size-8 place-items-center rounded-xl framer-spotlight-orange text-white shadow-sm shadow-black/25">
-            <Monitor className="size-4" />
-          </div>
+      <header className="relative z-10 border-b border-border/60 bg-background/92 px-4 py-4 shadow-sm backdrop-blur-sm md:px-6">
+        <AppBreadcrumb items={[{ label: "Settings" }]} />
+      </header>
+
+      <div className="relative z-10 flex w-full justify-center px-4 pt-4 pb-6 md:px-6">
+        <div className="settings-panel w-full max-w-3xl overflow-hidden rounded-3xl p-5 sm:p-6 lg:p-8">
           <div>
-            <div className="text-sm font-semibold">Local workspace</div>
-            <div className="text-xs text-muted-foreground">
-              Topic metadata and generated files stay on this machine.
+            <div className="mb-4 flex items-center gap-3 border-b border-border/40 pb-4">
+              <div className="grid size-8 place-items-center rounded-xl framer-spotlight-orange text-white shadow-sm shadow-black/25">
+                <Monitor className="size-4" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold">Local workspace</div>
+                <div className="text-xs text-muted-foreground">
+                  Topic metadata and generated files stay on this machine.
+                </div>
+              </div>
             </div>
+            <dl className="grid gap-4 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
+                  Data directory
+                </dt>
+                <dd className="mt-1 text-sm font-medium break-all">
+                  {health?.dataDir ?? "Loading..."}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
+                  SQLite database
+                </dt>
+                <dd className="mt-1 text-sm font-medium break-all">
+                  {health?.dbPath ?? "Loading..."}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
+                  Codex App Server
+                </dt>
+                <dd className="mt-1 text-sm font-medium">
+                  {health?.codexAppServerConfigured
+                    ? `Using ${health.codexAppServerCommand ?? "codex"} app-server`
+                    : "Unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
+                  Change workspace
+                </dt>
+                <dd className="mt-1 text-sm text-muted-foreground">
+                  Set{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+                    FRAMEBOOK_DATA_DIR
+                  </code>{" "}
+                  before starting.
+                </dd>
+              </div>
+            </dl>
           </div>
+
+          <section className="mt-5 border-t border-border/40 pt-5">
+            <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
+              <div>
+                <h2 className="font-heading text-sm font-semibold tracking-tight">
+                  Archived topics
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Archived topics stay local and hidden from the main view.
+                </p>
+              </div>
+              <span className="rounded-lg border border-border/60 bg-muted px-2.5 py-0.5 text-xs font-semibold">
+                {archivedTopics.length}
+              </span>
+            </div>
+
+            {isLoadingArchivedTopics ? (
+              <div
+                className="mt-4 space-y-2.5"
+                aria-label="Loading archived topics"
+              >
+                <Skeleton className="h-14 w-full rounded-xl" />
+                <Skeleton className="h-14 w-full rounded-xl" />
+              </div>
+            ) : null}
+
+            {!isLoadingArchivedTopics && archivedTopics.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-border/50 p-5 text-sm text-muted-foreground/60">
+                No archived topics yet.
+              </div>
+            ) : null}
+
+            {!isLoadingArchivedTopics && archivedTopics.length > 0 ? (
+              <div className="mt-4 divide-y divide-border/40 rounded-xl border border-border/60">
+                {archivedTopics.map((topic) => (
+                  <div
+                    key={topic.id}
+                    className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">{topic.name}</div>
+                      {topic.description ? (
+                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                          {topic.description}
+                        </p>
+                      ) : null}
+                      <div className="mt-1.5 flex flex-wrap gap-2.5 text-xs text-muted-foreground/60">
+                        <span>{topic.imageCount} images</span>
+                        <span>·</span>
+                        <span>
+                          Archived{" "}
+                          <span className="font-medium text-foreground/80">
+                            {topic.archivedAt
+                              ? formatDate(topic.archivedAt)
+                              : "Unknown"}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={restoringTopicId === topic.id}
+                        onClick={() => void restoreTopic(topic)}
+                      >
+                        {restoringTopicId === topic.id ? (
+                          <Loader2
+                            className="animate-spin"
+                            data-icon="inline-start"
+                          />
+                        ) : (
+                          <RotateCcw data-icon="inline-start" />
+                        )}
+                        Unarchive
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="mt-5 border-t border-border/40 pt-5">
+            <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
+              <div>
+                <h2 className="font-heading text-sm font-semibold tracking-tight">
+                  Archived images
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Archived images stay local and hidden from topic galleries.
+                </p>
+              </div>
+              <span className="rounded-lg border border-border/60 bg-muted px-2.5 py-0.5 text-xs font-semibold">
+                {archivedImages.length}
+              </span>
+            </div>
+
+            {isLoadingArchivedImages ? (
+              <div
+                className="mt-4 grid grid-cols-2 gap-3"
+                aria-label="Loading archived images"
+              >
+                {["first", "second", "third", "fourth"].map((key) => (
+                  <div
+                    key={key}
+                    className="aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted"
+                  >
+                    <Skeleton className="size-full rounded-none" />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {!isLoadingArchivedImages && archivedImages.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-border/50 p-5 text-sm text-muted-foreground/60">
+                No archived images yet.
+              </div>
+            ) : null}
+
+            {!isLoadingArchivedImages && archivedImages.length > 0 ? (
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {archivedImages.map((image) => (
+                  <article
+                    key={image.id}
+                    className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm"
+                  >
+                    <img
+                      src={imageFileUrl(image.id)}
+                      alt={image.title}
+                      className="size-full object-cover"
+                    />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
+                      <div className="line-clamp-1 text-xs font-semibold text-white">
+                        {image.title}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
+                        <span className="line-clamp-1">
+                          {image.topicSnapshot.name}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          {image.archivedAt
+                            ? formatDate(image.archivedAt)
+                            : "Unknown"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="absolute top-1.5 right-1.5">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={restoringImageId === image.id}
+                        onClick={() => void restoreImage(image)}
+                      >
+                        {restoringImageId === image.id ? (
+                          <Loader2
+                            className="animate-spin"
+                            data-icon="inline-start"
+                          />
+                        ) : (
+                          <RotateCcw data-icon="inline-start" />
+                        )}
+                        Unarchive
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </section>
         </div>
-        <dl className="grid gap-4 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
-              Data directory
-            </dt>
-            <dd className="mt-1 text-sm font-medium break-all">
-              {health?.dataDir ?? "Loading..."}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
-              SQLite database
-            </dt>
-            <dd className="mt-1 text-sm font-medium break-all">
-              {health?.dbPath ?? "Loading..."}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
-              Codex App Server
-            </dt>
-            <dd className="mt-1 text-sm font-medium">
-              {health?.codexAppServerConfigured
-                ? `Using ${health.codexAppServerCommand ?? "codex"} app-server`
-                : "Unavailable"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs tracking-wider text-muted-foreground/70 uppercase">
-              Change workspace
-            </dt>
-            <dd className="mt-1 text-sm text-muted-foreground">
-              Set{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-                FRAMEBOOK_DATA_DIR
-              </code>{" "}
-              before starting.
-            </dd>
-          </div>
-        </dl>
       </div>
-
-      <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
-          <div>
-            <h2 className="font-heading text-sm font-semibold tracking-tight">
-              Archived topics
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Archived topics stay local and hidden from the main view.
-            </p>
-          </div>
-          <span className="rounded-lg border border-border/60 bg-muted px-2.5 py-0.5 text-xs font-semibold">
-            {archivedTopics.length}
-          </span>
-        </div>
-
-        {isLoadingArchivedTopics ? (
-          <div
-            className="mt-4 space-y-2.5"
-            aria-label="Loading archived topics"
-          >
-            <Skeleton className="h-14 w-full rounded-xl" />
-            <Skeleton className="h-14 w-full rounded-xl" />
-          </div>
-        ) : null}
-
-        {!isLoadingArchivedTopics && archivedTopics.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-border/50 p-5 text-sm text-muted-foreground/60">
-            No archived topics yet.
-          </div>
-        ) : null}
-
-        {!isLoadingArchivedTopics && archivedTopics.length > 0 ? (
-          <div className="mt-4 divide-y divide-border/40 rounded-xl border border-border/60">
-            {archivedTopics.map((topic) => (
-              <div
-                key={topic.id}
-                className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto]"
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold">{topic.name}</div>
-                  {topic.description ? (
-                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                      {topic.description}
-                    </p>
-                  ) : null}
-                  <div className="mt-1.5 flex flex-wrap gap-2.5 text-xs text-muted-foreground/60">
-                    <span>{topic.imageCount} images</span>
-                    <span>·</span>
-                    <span>{topic.defaultAspectRatio}</span>
-                    <span>·</span>
-                    <span>{modeLabel(topic.enhancerMode)}</span>
-                    <span>·</span>
-                    <span>
-                      Archived{" "}
-                      <span className="font-medium text-foreground/80">
-                        {topic.archivedAt
-                          ? formatDate(topic.archivedAt)
-                          : "Unknown"}
-                      </span>
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={restoringTopicId === topic.id}
-                    onClick={() => void restoreTopic(topic)}
-                  >
-                    {restoringTopicId === topic.id ? (
-                      <Loader2
-                        className="animate-spin"
-                        data-icon="inline-start"
-                      />
-                    ) : (
-                      <RotateCcw data-icon="inline-start" />
-                    )}
-                    Unarchive
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
-          <div>
-            <h2 className="font-heading text-sm font-semibold tracking-tight">
-              Archived images
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Archived images stay local and hidden from topic galleries.
-            </p>
-          </div>
-          <span className="rounded-lg border border-border/60 bg-muted px-2.5 py-0.5 text-xs font-semibold">
-            {archivedImages.length}
-          </span>
-        </div>
-
-        {isLoadingArchivedImages ? (
-          <div
-            className="mt-4 grid grid-cols-2 gap-3"
-            aria-label="Loading archived images"
-          >
-            {["first", "second", "third", "fourth"].map((key) => (
-              <div
-                key={key}
-                className="aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted"
-              >
-                <Skeleton className="size-full rounded-none" />
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {!isLoadingArchivedImages && archivedImages.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-border/50 p-5 text-sm text-muted-foreground/60">
-            No archived images yet.
-          </div>
-        ) : null}
-
-        {!isLoadingArchivedImages && archivedImages.length > 0 ? (
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {archivedImages.map((image) => (
-              <article
-                key={image.id}
-                className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm"
-              >
-                <img
-                  src={imageFileUrl(image.id)}
-                  alt={image.title}
-                  className="size-full object-cover"
-                />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
-                  <div className="line-clamp-1 text-xs font-semibold text-white">
-                    {image.title}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
-                    <span className="line-clamp-1">
-                      {image.topicSnapshot.name}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      {image.archivedAt
-                        ? formatDate(image.archivedAt)
-                        : "Unknown"}
-                    </span>
-                  </div>
-                </div>
-                <div className="absolute top-1.5 right-1.5">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={restoringImageId === image.id}
-                    onClick={() => void restoreImage(image)}
-                  >
-                    {restoringImageId === image.id ? (
-                      <Loader2
-                        className="animate-spin"
-                        data-icon="inline-start"
-                      />
-                    ) : (
-                      <RotateCcw data-icon="inline-start" />
-                    )}
-                    Unarchive
-                  </Button>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : null}
-      </section>
     </div>
   )
 }

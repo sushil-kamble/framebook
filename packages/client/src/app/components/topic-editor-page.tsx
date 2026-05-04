@@ -2,6 +2,7 @@ import { useState } from "react"
 import { ArrowLeft, Loader2, Pencil } from "lucide-react"
 import { validateTopicDraft } from "@app/lib/topic-form"
 import { aspectRatioOptions, enhancerModeOptions } from "../lib/constants"
+import { AppBreadcrumb } from "./app-breadcrumb"
 import type { ReactNode } from "react"
 import type {
   AspectRatio,
@@ -22,14 +23,19 @@ import { Textarea } from "@/shared/ui/textarea"
 export function TopicEditorPage({
   editor,
   onCancel,
+  onTopicsClick,
+  onTopicClick,
   onSubmit,
 }: {
   editor: {
     mode: "create" | "edit"
     draft: TopicDraft
+    topicId?: string
     topicName?: string
   }
   onCancel: () => void
+  onTopicsClick: () => void
+  onTopicClick: () => void
   onSubmit: (draft: TopicDraft) => Promise<void>
 }) {
   const [draft, setDraft] = useState(editor.draft)
@@ -70,14 +76,25 @@ export function TopicEditorPage({
   }
 
   const heading = editor.mode === "create" ? "Create Topic" : "Edit Topic"
-  const subheading =
+  const breadcrumbItems =
     editor.mode === "create"
-      ? "Shape the world this topic explores. Every prompt will inherit it."
-      : `Update ${editor.topicName ?? "this topic"} and guide future generation direction.`
+      ? [{ label: "Topics", onClick: onTopicsClick }, { label: heading }]
+      : [
+          { label: "Topics", onClick: onTopicsClick },
+          {
+            label: editor.topicName ?? "Topic",
+            onClick: onTopicClick,
+          },
+          { label: heading },
+        ]
 
   return (
-    <div className="topic-editor-stage relative -mx-4 -my-4 flex min-h-[100svh] flex-col md:-mx-6">
-      <div className="pointer-events-none absolute inset-0 topic-editor-vignette" />
+    <div className="topic-editor-stage relative flex min-h-svh flex-col">
+      <div className="topic-editor-vignette pointer-events-none absolute inset-0" />
+
+      <header className="relative z-10 border-b border-border/60 bg-background/92 px-5 py-4 shadow-sm backdrop-blur-sm sm:px-10 lg:px-14">
+        <AppBreadcrumb items={breadcrumbItems} />
+      </header>
 
       <div className="relative z-10 flex flex-1 items-center justify-center p-5 sm:p-10 lg:p-14">
         <div className="topic-editor-panel relative w-full max-w-3xl overflow-hidden rounded-3xl">
@@ -85,15 +102,6 @@ export function TopicEditorPage({
           <div className="topic-editor-glow topic-editor-glow-orange pointer-events-none" />
 
           <div className="relative grid gap-5 p-6 sm:p-9 lg:p-10">
-            <div className="flex flex-col gap-1.5">
-              <h1 className="font-heading text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                {heading}
-              </h1>
-              <p className="max-w-xl text-sm text-muted-foreground/85">
-                {subheading}
-              </p>
-            </div>
-
             <Field label="Topic Name" error={errors.name}>
               <input
                 value={draft.name}
@@ -148,7 +156,9 @@ export function TopicEditorPage({
             >
               <Textarea
                 value={draft.instruction}
-                onChange={(event) => updateCreativeDirection(event.target.value)}
+                onChange={(event) =>
+                  updateCreativeDirection(event.target.value)
+                }
                 rows={6}
                 className="topic-editor-input min-h-32 resize-y"
                 placeholder="Describe what this topic is about and the direction every generation should follow."

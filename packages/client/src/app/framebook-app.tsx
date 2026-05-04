@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router"
+import { useLocation, useNavigate } from "@tanstack/react-router"
 import { X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -26,6 +26,7 @@ import {
   imageDownloadName,
   imageFileUrl,
   routeForScreen,
+  routeStateFromPathname,
 } from "./lib/utils"
 import { useThemeMode } from "./lib/theme"
 import { copyTextToClipboard } from "./lib/share"
@@ -39,20 +40,31 @@ import type {
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
 
+const generationToastId = "generation"
+const promptEnhancementToastId = "prompt-enhancement"
+
 export function FramebookApp({
-  routeScreen = "topics",
+  routeScreen,
   routeTopicId,
   routeImageId,
 }: FramebookAppProps = {}) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const routeState = useMemo(
+    () => routeStateFromPathname(location.pathname),
+    [location.pathname]
+  )
+  const currentRouteScreen = routeScreen ?? routeState.routeScreen
+  const currentRouteTopicId = routeTopicId ?? routeState.routeTopicId
+  const currentRouteImageId = routeImageId ?? routeState.routeImageId
   const { themeMode, setThemeMode } = useThemeMode()
   const [topics, setTopics] = useState<Array<TopicSummary>>([])
   const [images, setImages] = useState<Array<ImageRecord>>([])
   const [starredImages, setStarredImages] = useState<Array<ImageRecord>>([])
   const [activeTopicId, setActiveTopicId] = useState<string | null>(
-    routeTopicId ?? null
+    currentRouteTopicId ?? null
   )
-  const [screen, setScreen] = useState<Screen>(routeScreen)
+  const screen = currentRouteScreen
   const [topicEditor, setTopicEditor] = useState<{
     mode: "create" | "edit"
     topicId?: string
@@ -70,11 +82,11 @@ export function FramebookApp({
   const [isLoadingTopics, setIsLoadingTopics] = useState(true)
   const [isLoadingImages, setIsLoadingImages] = useState(false)
   const [isLoadingStarredImages, setIsLoadingStarredImages] = useState(() =>
-    isStarredImagesScreen(routeScreen)
+    isStarredImagesScreen(currentRouteScreen)
   )
   const [hasLoadedStarredImages, setHasLoadedStarredImages] = useState(false)
   const [isLoadingImageDetail, setIsLoadingImageDetail] = useState(
-    () => routeScreen === "image-detail" && Boolean(routeImageId)
+    () => currentRouteScreen === "image-detail" && Boolean(currentRouteImageId)
   )
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [job, setJob] = useState<GenerationJob | null>(null)
@@ -97,28 +109,28 @@ export function FramebookApp({
   )
   const activeDetailImage = useMemo(
     () =>
-      images.find((image) => image.id === routeImageId) ??
-      (detailImage?.id === routeImageId ? detailImage : null),
-    [detailImage, images, routeImageId]
+      images.find((image) => image.id === currentRouteImageId) ??
+      (detailImage?.id === currentRouteImageId ? detailImage : null),
+    [currentRouteImageId, detailImage, images]
   )
   const promptValue =
     promptMode === "generation" ? generationPrompt : userPrompt
   const isLoadingActiveTopic =
     screen === "topic" &&
-    Boolean(routeTopicId ?? activeTopicId) &&
+    Boolean(currentRouteTopicId ?? activeTopicId) &&
     isLoadingTopics &&
     !activeTopic
   const activeGenerationJobId =
     job && isActiveGenerationJob(job) ? job.id : null
-  const pageTransitionKey = `${screen}:${activeTopicId ?? ""}:${routeImageId ?? ""}`
   const isStarredImagesLoading =
     isLoadingStarredImages ||
     (isStarredImagesScreen(screen) && !hasLoadedStarredImages)
   const isLoadingActiveImageDetail =
     screen === "image-detail" &&
-    Boolean(routeImageId) &&
+    Boolean(currentRouteImageId) &&
     isLoadingImageDetail &&
     !activeDetailImage
+  const isImmersiveScreen = screen === "settings" || screen === "topic-editor"
 
   const loadTopics = useCallback(async () => {
     setIsLoadingTopics(true)
@@ -169,13 +181,14 @@ export function FramebookApp({
             ? loadImages(finishedJob.topicId, favoriteOnly)
             : Promise.resolve(),
         ])
-        toast.success("Image generated", { id: "generation" })
+        toast.dismiss(generationToastId)
+        toast.success("Image generated")
         return
       }
 
       if (finishedJob.status === "failed") {
+        toast.dismiss(generationToastId)
         toast.error("Generation failed", {
-          id: "generation",
           description: finishedJob.error ?? "Your prompt is safe to retry.",
         })
         setError(
@@ -191,29 +204,30 @@ export function FramebookApp({
   }, [loadTopics])
 
   useEffect(() => {
-    setScreen(routeScreen)
     setError(null)
 
-    if (routeTopicId) {
-      setActiveTopicId(routeTopicId)
+    if (currentRouteTopicId) {
+      setActiveTopicId(currentRouteTopicId)
     }
 
-    if (routeScreen !== "image-detail") {
+    if (currentRouteScreen !== "image-detail") {
       setDetailImage(null)
       setImageDetailBackScreen(null)
     }
 
-    if (routeScreen === "topic-editor" && !routeTopicId) {
+    if (currentRouteScreen === "topic-editor" && !currentRouteTopicId) {
       setTopicEditor({ mode: "create", draft: defaultTopicDraft })
     }
-  }, [routeScreen, routeTopicId])
+  }, [currentRouteScreen, currentRouteTopicId])
 
   useEffect(() => {
-    if (routeScreen !== "topic-editor" || !routeTopicId) {
+    if (currentRouteScreen !== "topic-editor" || !currentRouteTopicId) {
       return
     }
 
-    const topic = topics.find((candidate) => candidate.id === routeTopicId)
+    const topic = topics.find(
+      (candidate) => candidate.id === currentRouteTopicId
+    )
     if (!topic) {
       return
     }
@@ -224,7 +238,7 @@ export function FramebookApp({
       topicName: topic.name,
       draft: draftFromTopic(topic),
     })
-  }, [routeScreen, routeTopicId, topics])
+  }, [currentRouteScreen, currentRouteTopicId, topics])
 
   const activeTopicDefaultAspectRatio = activeTopic?.defaultAspectRatio
   useEffect(() => {
@@ -336,13 +350,13 @@ export function FramebookApp({
   }, [activeTopic?.id])
 
   useEffect(() => {
-    if (routeScreen !== "image-detail" || !routeImageId) {
+    if (currentRouteScreen !== "image-detail" || !currentRouteImageId) {
       setIsLoadingImageDetail(false)
       return
     }
 
     let cancelled = false
-    const imageId = routeImageId
+    const imageId = currentRouteImageId
 
     async function loadImageDetail() {
       setIsLoadingImageDetail(true)
@@ -376,14 +390,17 @@ export function FramebookApp({
     return () => {
       cancelled = true
     }
-  }, [routeImageId, routeScreen])
+  }, [currentRouteImageId, currentRouteScreen])
 
   const navigateTo = (nextScreen: Screen, topicId?: string | null) => {
     const target = routeForScreen(
       nextScreen,
       topicId === undefined ? activeTopicId : topicId
     )
-    void navigate({ to: target } as Parameters<typeof navigate>[0])
+    void navigate({
+      to: target,
+      viewTransition: true,
+    } as Parameters<typeof navigate>[0])
   }
 
   const openImageDetail = (image: ImageRecord) => {
@@ -393,20 +410,19 @@ export function FramebookApp({
     )
     void navigate({
       to: `/topics/${encodeURIComponent(image.topicId)}/images/${encodeURIComponent(image.id)}`,
+      viewTransition: true,
     } as Parameters<typeof navigate>[0])
   }
 
   const openTopic = (topic: TopicSummary, nextScreen: Screen = "topic") => {
     setActiveTopicId(topic.id)
     setSelectedAspectRatio(topic.defaultAspectRatio)
-    setScreen(nextScreen)
     setError(null)
     navigateTo(nextScreen, topic.id)
   }
 
   const startCreateTopic = () => {
     setTopicEditor({ mode: "create", draft: defaultTopicDraft })
-    setScreen("topic-editor")
     setError(null)
     navigateTo("topic-editor", null)
   }
@@ -418,7 +434,6 @@ export function FramebookApp({
       topicName: topic.name,
       draft: draftFromTopic(topic),
     })
-    setScreen("topic-editor")
     setError(null)
     navigateTo("topic-editor", topic.id)
   }
@@ -447,7 +462,6 @@ export function FramebookApp({
     await framebookApi.archiveTopic(activeTopic.id)
     setActiveTopicId(null)
     setImages([])
-    setScreen("topics")
     navigateTo("topics")
     await loadTopics()
     toast("Topic archived", { description: name })
@@ -504,14 +518,20 @@ export function FramebookApp({
 
     setIsEnhancing(true)
     setError(null)
+    toast("Enhancing prompt...", {
+      id: promptEnhancementToastId,
+    })
     try {
       const result = await framebookApi.enhancePrompt(activeTopic.id, {
         rawPrompt: userPrompt,
       })
       setGenerationPrompt(result.enhancedPrompt)
       setPromptMode("generation")
+      toast.dismiss(promptEnhancementToastId)
       toast.success("Prompt enhanced")
     } catch (requestError) {
+      toast.dismiss(promptEnhancementToastId)
+      toast.error("Prompt enhancement failed")
       setError(errorMessage(requestError))
     } finally {
       setIsEnhancing(false)
@@ -536,6 +556,9 @@ export function FramebookApp({
     }
 
     setError(null)
+    toast("Your image is being generated", {
+      id: generationToastId,
+    })
     try {
       const submittedUserPrompt =
         userPrompt.trim() || submittedPromptValue.trim()
@@ -551,11 +574,9 @@ export function FramebookApp({
       setUserPrompt("")
       setGenerationPrompt("")
       setPromptMode("user")
-      toast.loading("Generating image...", {
-        id: "generation",
-        duration: Infinity,
-      })
     } catch (requestError) {
+      toast.dismiss(generationToastId)
+      toast.error("Image generation failed")
       setError(errorMessage(requestError))
     }
   }
@@ -668,7 +689,13 @@ export function FramebookApp({
           onCreateTopic={startCreateTopic}
           onThemeModeChange={setThemeMode}
         />
-        <section className="min-w-0 flex-1 px-4 py-4 md:px-6">
+        <section
+          className={
+            isImmersiveScreen
+              ? "min-w-0 flex-1"
+              : "min-w-0 flex-1 px-4 py-4 md:px-6"
+          }
+        >
           {error ? (
             <div className="mb-4 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               <span>{error}</span>
@@ -683,10 +710,7 @@ export function FramebookApp({
             </div>
           ) : null}
 
-          <div
-            key={pageTransitionKey}
-            className="animate-in duration-200 ease-out fade-in-0"
-          >
+          <div className="framebook-page-stage">
             {screen === "topics" ? (
               <TopicsScreen
                 topics={topics}
@@ -704,6 +728,10 @@ export function FramebookApp({
                   setTopicEditor(null)
                   navigateTo(activeTopic ? "topic" : "topics")
                 }}
+                onTopicsClick={() => navigateTo("topics")}
+                onTopicClick={() => {
+                  navigateTo("topic", topicEditor.topicId ?? activeTopicId)
+                }}
                 onSubmit={submitTopic}
               />
             ) : null}
@@ -715,7 +743,6 @@ export function FramebookApp({
                 topic={activeTopic}
                 images={images}
                 promptValue={promptValue}
-                hasGenerationPrompt={promptMode === "generation"}
                 selectedAspectRatio={selectedAspectRatio}
                 selectedResolutionPreset={selectedResolutionPreset}
                 favoriteOnly={favoriteOnly}

@@ -1,16 +1,9 @@
-import { Outlet, createFileRoute, useLocation } from "@tanstack/react-router"
-import { FramebookApp } from "@app/framebook-app"
+import { createFileRoute } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/topics")({
-  component: TopicsRoute,
+  component: EmptyRoute,
 })
 
-function TopicsRoute() {
-  const location = useLocation()
-
-  if (location.pathname !== "/topics") {
-    return <Outlet />
-  }
-
-  return <FramebookApp routeScreen="topics" />
+function EmptyRoute() {
+  return null
 }

@@ -2,6 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 
+import { FramebookApp } from "../app/framebook-app"
 import { defaultThemeMode, themeStorageKey } from "../app/lib/theme"
 import { Toaster } from "../shared/ui/sonner"
 import appCss from "../app/styles/index.css?url"
@@ -39,6 +40,18 @@ export const Route = createRootRoute({
         rel: "stylesheet",
         href: appCss,
       },
+      {
+        rel: "icon",
+        href: "/favicon.ico",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: "/assets/framebook-logo-192.png",
+      },
+      {
+        rel: "manifest",
+        href: "/manifest.json",
+      },
     ],
   }),
   notFoundComponent: () => (
@@ -56,6 +69,7 @@ export const Route = createRootRoute({
       </div>
     </main>
   ),
+  component: FramebookApp,
   shellComponent: RootDocument,
 })
 

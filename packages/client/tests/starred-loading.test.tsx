@@ -5,6 +5,7 @@ import { StarredScreen } from "../src/app/components/starred-screen"
 import { FramebookApp } from "../src/app/framebook-app"
 
 vi.mock("@tanstack/react-router", () => ({
+  useLocation: () => ({ pathname: "/starred" }),
   useNavigate: () => vi.fn(),
 }))
 

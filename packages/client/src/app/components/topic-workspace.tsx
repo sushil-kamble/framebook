@@ -1,7 +1,7 @@
 import {
   Archive,
+  Eye,
   ImageIcon,
-  Info,
   Loader2,
   Pencil,
   Send,
@@ -25,7 +25,6 @@ import type {
   ResolutionPreset,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
-import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import {
   Select,
@@ -42,7 +41,6 @@ export function TopicWorkspace(props: {
   topic: TopicSummary
   images: Array<ImageRecord>
   promptValue: string
-  hasGenerationPrompt: boolean
   selectedAspectRatio: AspectRatio
   selectedResolutionPreset: ResolutionPreset
   favoriteOnly: boolean
@@ -116,7 +114,6 @@ export function TopicWorkspace(props: {
         <div className="flex flex-col gap-2">
           <PromptComposer
             promptValue={props.promptValue}
-            hasGenerationPrompt={props.hasGenerationPrompt}
             selectedAspectRatio={props.selectedAspectRatio}
             selectedResolutionPreset={props.selectedResolutionPreset}
             isEnhancing={props.isEnhancing}
@@ -181,7 +178,6 @@ export function TopicWorkspaceSkeleton() {
 
 function PromptComposer(props: {
   promptValue: string
-  hasGenerationPrompt: boolean
   selectedAspectRatio: AspectRatio
   selectedResolutionPreset: ResolutionPreset
   isEnhancing: boolean
@@ -199,13 +195,6 @@ function PromptComposer(props: {
         <label className="sr-only" htmlFor="raw-prompt">
           Prompt
         </label>
-        {props.hasGenerationPrompt ? (
-          <div className="px-0.5 text-xs text-muted-foreground/60">
-            <Badge variant="secondary" className="text-[10px]">
-              Enhanced
-            </Badge>
-          </div>
-        ) : null}
         <div className="relative">
           <Textarea
             id="raw-prompt"
@@ -353,9 +342,9 @@ function GalleryCanvas(props: {
                     type="button"
                     className="block size-full text-left"
                     onClick={() => {
-                      props.onPreviewImage(image)
+                      props.onViewImageDetails(image)
                     }}
-                    aria-label={`Preview ${image.title}`}
+                    aria-label={`View details for ${image.title}`}
                   >
                     <img
                       src={
@@ -393,11 +382,11 @@ function GalleryCanvas(props: {
                       type="button"
                       size="icon-sm"
                       variant="secondary"
-                      onClick={() => props.onViewImageDetails(image)}
-                      aria-label={`View details for ${image.title}`}
-                      title="View details"
+                      onClick={() => props.onPreviewImage(image)}
+                      aria-label={`Preview ${image.title}`}
+                      title="Preview"
                     >
-                      <Info />
+                      <Eye />
                     </Button>
                     <Button
                       type="button"
@@ -431,7 +420,7 @@ function GalleryCanvas(props: {
 function GeneratingImageCard() {
   return (
     <article
-      className="relative aspect-4/3 overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
+      className="generating-image-skeleton relative aspect-4/3 overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
       aria-label="Generating image"
     >
       <div className="absolute inset-0 framer-grid opacity-10" />
@@ -440,9 +429,6 @@ function GeneratingImageCard() {
         <div className="flex items-center gap-2 text-xs font-semibold text-white">
           <Loader2 className="size-3.5 animate-spin text-ring" />
           Generating image
-        </div>
-        <div className="mt-1 h-2 w-28 overflow-hidden rounded-full bg-white/15">
-          <div className="h-full w-1/2 animate-pulse rounded-full bg-ring/80" />
         </div>
       </div>
     </article>
