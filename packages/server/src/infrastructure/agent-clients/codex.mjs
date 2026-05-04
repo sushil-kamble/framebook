@@ -11,6 +11,7 @@ const defaultEffort = "medium"
 const defaultEnhancerEffort = "low"
 const imageServiceTier = "fast"
 const enhancerServiceTier = "fast"
+const defaultAppServerArgs = ["--disable", "plugins", "--disable", "apps"]
 const defaultTimeoutMs = 10 * 60 * 1000
 const defaultImageFileTimeoutMs = 10_000
 const pngMimeType = "image/png"
@@ -31,6 +32,8 @@ export function createCodexClient({ env = process.env } = {}) {
       env.FRAMEBOOK_CODEX_ENHANCER_EFFORT || defaultEnhancerEffort,
     titleModel: env.FRAMEBOOK_CODEX_TITLE_MODEL || defaultTitleModel,
     titleEffort: env.FRAMEBOOK_CODEX_TITLE_EFFORT || defaultEffort,
+    appServerArgs: defaultAppServerArgs,
+    logStderr: env.FRAMEBOOK_CODEX_LOG_STDERR === "1",
     timeoutMs: readPositiveInteger(
       env.FRAMEBOOK_CODEX_TIMEOUT_MS,
       defaultTimeoutMs
@@ -71,6 +74,8 @@ export class CodexAppServerImageClient {
       options.enhancerServiceTier || enhancerServiceTier
     this.titleModel = options.titleModel || defaultTitleModel
     this.titleEffort = options.titleEffort || defaultEffort
+    this.appServerArgs = options.appServerArgs || defaultAppServerArgs
+    this.logStderr = options.logStderr === true
     this.timeoutMs = options.timeoutMs || defaultTimeoutMs
     this.imageFileTimeoutMs =
       options.imageFileTimeoutMs || defaultImageFileTimeoutMs
@@ -92,6 +97,7 @@ export class CodexAppServerImageClient {
     aspectRatio,
     resolutionPreset,
     topic,
+    referenceImages,
     outputDir,
     fileName,
   }) {
@@ -106,6 +112,7 @@ export class CodexAppServerImageClient {
           aspectRatio,
           resolutionPreset,
           topic,
+          referenceImages,
           outputPath,
           targetFileName,
         }),
@@ -116,6 +123,7 @@ export class CodexAppServerImageClient {
           aspectRatio,
           resolutionPreset,
           topic,
+          referenceImages,
           outputPath,
           targetFileName,
         })
@@ -154,6 +162,7 @@ export class CodexAppServerImageClient {
     aspectRatio,
     resolutionPreset,
     topic,
+    referenceImages,
     outputPath,
     targetFileName,
   }) {
@@ -167,6 +176,7 @@ export class CodexAppServerImageClient {
           aspectRatio,
           resolutionPreset,
           topic,
+          referenceImages,
           outputPath,
         }),
         timeoutMs: this.timeoutMs,
@@ -236,6 +246,8 @@ export class CodexAppServerImageClient {
       env: this.env,
       model: this.titleModel,
       effort: this.titleEffort,
+      appServerArgs: this.appServerArgs,
+      logStderr: this.logStderr,
     })
 
     try {
@@ -268,6 +280,8 @@ export class CodexAppServerImageClient {
       model: this.imageModel,
       effort: this.imageEffort,
       serviceTier: this.imageServiceTier,
+      appServerArgs: this.appServerArgs,
+      logStderr: this.logStderr,
     })
 
     try {
@@ -331,6 +345,8 @@ export class CodexAppServerImageClient {
       model: this.enhancerModel,
       effort: this.enhancerEffort,
       serviceTier: this.enhancerServiceTier,
+      appServerArgs: this.appServerArgs,
+      logStderr: this.logStderr,
     })
 
     try {
@@ -397,7 +413,16 @@ export class CodexAppServerImageClient {
 }
 
 export class CodexAppServerSession extends EventEmitter {
-  constructor({ command, cwd, env, model, effort, serviceTier }) {
+  constructor({
+    command,
+    cwd,
+    env,
+    model,
+    effort,
+    serviceTier,
+    appServerArgs = [],
+    logStderr = false,
+  }) {
     super()
     this.command = command
     this.cwd = cwd
@@ -405,6 +430,8 @@ export class CodexAppServerSession extends EventEmitter {
     this.model = model
     this.effort = effort
     this.serviceTier = serviceTier
+    this.appServerArgs = appServerArgs
+    this.logStderr = logStderr
     this.nextId = 1
     this.pending = new Map()
     this.threadId = null
@@ -498,7 +525,7 @@ export class CodexAppServerSession extends EventEmitter {
       return
     }
 
-    this.proc = spawn(this.command, ["app-server"], {
+    this.proc = spawn(this.command, ["app-server", ...this.appServerArgs], {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: this.cwd,
       env: this.env,
@@ -516,7 +543,9 @@ export class CodexAppServerSession extends EventEmitter {
     })
     this.proc.stderr.on("data", (data) => {
       this.stderr += data.toString()
-      process.stderr.write(`[framebook codex] ${data}`)
+      if (this.logStderr) {
+        process.stderr.write(`[framebook codex] ${data}`)
+      }
     })
 
     this.reader = readline.createInterface({ input: this.proc.stdout })
@@ -737,6 +766,7 @@ export function buildImageGenerationPrompt({
   aspectRatio,
   resolutionPreset,
   topic,
+  referenceImages = [],
   outputPath,
 }) {
   const topicDescription = topic.description
@@ -746,6 +776,7 @@ export function buildImageGenerationPrompt({
     ? `\nReusable base prompt details: ${topic.basePromptDetails}`
     : ""
   const outputResolution = formatResolutionPreset(resolutionPreset)
+  const referenceBlock = formatReferenceImages(referenceImages)
 
   return `Generate exactly one Framebook image using the available image creation skill/tool.
 
@@ -761,7 +792,7 @@ Raw prompt:
 ${rawPrompt}
 
 Final image prompt:
-${prompt}
+${prompt}${referenceBlock}
 
 Output requirements:
 - Create the parent directory if needed.
@@ -769,6 +800,30 @@ Output requirements:
 ${outputPath}
 - Do not modify Framebook source files or metadata JSON.
 - Reply with only the saved absolute path after the file exists.`
+}
+
+function formatReferenceImages(referenceImages) {
+  if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
+    return ""
+  }
+
+  const references = referenceImages
+    .filter((reference) => reference?.filePath)
+    .map((reference, index) => {
+      const label = reference.originalName ? ` (${reference.originalName})` : ""
+      return `${index + 1}. ${reference.filePath}${label}`
+    })
+
+  if (references.length === 0) {
+    return ""
+  }
+
+  return `
+
+Reference images:
+${references.join("\n")}
+
+Use these files as visual references. The user's prompt controls what to preserve, change, or reinterpret. For edit-style requests, preserve requested identity, pose, composition, or product details from the references unless the prompt says otherwise.`
 }
 
 function formatResolutionPreset(value) {
@@ -830,7 +885,7 @@ ${enhancedPrompt}`
 function framebookImageDeveloperInstructions() {
   return `You are Framebook's Codex App Server image worker.
 
-Use the image creation skill/tool when the user asks for image generation. Save the generated image to the exact absolute filesystem path requested by the user. Do not satisfy image requests with placeholders, SVGs, CSS drawings, or descriptive text.`
+Use the image creation skill/tool when the user asks for image generation. Save the generated image to the exact absolute filesystem path requested by the user. If the prompt lists reference image paths, read those local files as visual references and use the user's prompt to decide what to preserve or change. Do not satisfy image requests with placeholders, SVGs, CSS drawings, or descriptive text.`
 }
 
 function framebookPromptDeveloperInstructions() {

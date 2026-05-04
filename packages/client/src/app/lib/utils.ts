@@ -47,6 +47,12 @@ export function imageFileUrl(imageId: string) {
   return framebookApiUrl(`/api/images/${encodeURIComponent(imageId)}/file`)
 }
 
+export function imageReferenceUrl(imageId: string, referenceId: string) {
+  return framebookApiUrl(
+    `/api/images/${encodeURIComponent(imageId)}/references/${encodeURIComponent(referenceId)}/file`
+  )
+}
+
 export function imageVariantUrl(imageId: string, width: number) {
   return framebookApiUrl(
     `/api/images/${encodeURIComponent(imageId)}/variants/${width}`

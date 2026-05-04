@@ -55,6 +55,7 @@ describe("optimized image grids", () => {
         topic={topicSummary}
         images={[imageRecord]}
         promptValue=""
+        referenceImages={[]}
         selectedAspectRatio="4:3"
         selectedResolutionPreset="1k"
         favoriteOnly={false}
@@ -66,6 +67,9 @@ describe("optimized image grids", () => {
         onEditTopic={vi.fn()}
         onArchiveTopic={vi.fn()}
         onPromptChange={vi.fn()}
+        onAddReferenceImages={vi.fn()}
+        onRemoveReferenceImage={vi.fn()}
+        onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
         onResolutionPresetChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
@@ -100,6 +104,59 @@ describe("optimized image grids", () => {
     await waitFor(() =>
       expect(onPreviewImage).toHaveBeenCalledWith(imageRecord)
     )
+  })
+
+  it("renders and removes selected reference image attachments", () => {
+    const onRemoveReferenceImage = vi.fn()
+
+    render(
+      <TopicWorkspace
+        topic={topicSummary}
+        images={[]}
+        promptValue="Change the t-shirt color"
+        referenceImages={[
+          {
+            id: "reference-1",
+            file: new File(["png"], "subject.png", { type: "image/png" }),
+            previewUrl: "blob:subject",
+          },
+        ]}
+        selectedAspectRatio="4:3"
+        selectedResolutionPreset="1k"
+        favoriteOnly={false}
+        job={null}
+        isEnhancing={false}
+        isCreatingGeneration={false}
+        isLoadingImages={false}
+        onBack={vi.fn()}
+        onEditTopic={vi.fn()}
+        onArchiveTopic={vi.fn()}
+        onPromptChange={vi.fn()}
+        onAddReferenceImages={vi.fn()}
+        onRemoveReferenceImage={onRemoveReferenceImage}
+        onReferenceImageError={vi.fn()}
+        onAspectRatioChange={vi.fn()}
+        onResolutionPresetChange={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onGenerate={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onFavoriteFilterChange={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText("Reference images")).toBeTruthy()
+    expect(screen.getByText("1/5")).toBeTruthy()
+    expect(
+      screen.getByRole("img", { name: "Reference subject.png" })
+    ).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove subject.png" }))
+
+    expect(onRemoveReferenceImage).toHaveBeenCalledWith("reference-1")
   })
 
   it("reopens the same hovered image when v is pressed after closing preview", async () => {
@@ -191,6 +248,40 @@ describe("optimized image grids", () => {
 
     expect(onClosePreview).toHaveBeenCalledOnce()
   })
+
+  it("renders reference images on image detail", () => {
+    render(
+      <ImageDetailPage
+        image={{
+          ...imageRecord,
+          referenceImages: [
+            {
+              id: "reference-1",
+              fileName: "references/job-1/reference-1.png",
+              originalName: "subject.png",
+              mimeType: "image/png",
+              sizeBytes: 123,
+              width: 64,
+              height: 48,
+              createdAt: "2026-05-04T10:00:00.000Z",
+            },
+          ],
+        }}
+        onBack={vi.fn()}
+        onTopicsClick={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onShareImage={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText("Reference images")).toBeTruthy()
+    expect(screen.getByRole("img", { name: "subject.png" })).toBeTruthy()
+    expect(
+      screen.getByRole("link", { name: "subject.png" }).getAttribute("href")
+    ).toContain("/api/images/image-1/references/reference-1/file")
+  })
 })
 
 function PreviewToggleHarness() {
@@ -206,6 +297,7 @@ function PreviewToggleHarness() {
         topic={topicSummary}
         images={[imageRecord]}
         promptValue=""
+        referenceImages={[]}
         selectedAspectRatio="4:3"
         selectedResolutionPreset="1k"
         favoriteOnly={false}
@@ -217,6 +309,9 @@ function PreviewToggleHarness() {
         onEditTopic={vi.fn()}
         onArchiveTopic={vi.fn()}
         onPromptChange={vi.fn()}
+        onAddReferenceImages={vi.fn()}
+        onRemoveReferenceImage={vi.fn()}
+        onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
         onResolutionPresetChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
@@ -282,6 +377,7 @@ const imageRecord: ImageRecord = {
   width: 1200,
   height: 900,
   placeholderColor: "#336699",
+  referenceImages: [],
   variants: [
     {
       width: 320,

@@ -171,4 +171,44 @@ describe("framebook api client", () => {
       })
     )
   })
+
+  it("sends multipart form data when creating a generation with reference images", async () => {
+    const fetcher = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" } }))
+    )
+    const api = createFramebookApi(fetcher)
+    const referenceImage = new File(["png"], "reference.png", {
+      type: "image/png",
+    })
+
+    await api.createGeneration(
+      "topic-1",
+      {
+        rawPrompt: "Change the t-shirt color",
+        enhancedPrompt: "Change only the t-shirt color.",
+        aspectRatio: "4:3",
+        resolutionPreset: "1k",
+      },
+      [referenceImage]
+    )
+
+    const init = fetcher.mock.calls[0]?.[1] as RequestInit
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1/generations",
+      expect.objectContaining({
+        method: "POST",
+      })
+    )
+    expect(init.body).toBeInstanceOf(FormData)
+    expect(init.headers).not.toHaveProperty("content-type")
+    expect((init.body as FormData).get("rawPrompt")).toBe(
+      "Change the t-shirt color"
+    )
+    const uploadedReference = (init.body as FormData).get(
+      "referenceImages"
+    ) as File
+    expect(uploadedReference.name).toBe(referenceImage.name)
+    expect(uploadedReference.type).toBe(referenceImage.type)
+  })
 })

@@ -9,7 +9,12 @@ import {
 import { toast } from "sonner"
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { copyTextToClipboard } from "../lib/share"
-import { formatDate, imageFileUrl, modeLabel } from "../lib/utils"
+import {
+  formatDate,
+  imageFileUrl,
+  imageReferenceUrl,
+  modeLabel,
+} from "../lib/utils"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
@@ -29,6 +34,10 @@ export function ImageDetailPage(props: {
   if (!image) {
     return <ImageDetailSkeleton />
   }
+  const imageWithReferences = image as Omit<ImageRecord, "referenceImages"> & {
+    referenceImages?: ImageRecord["referenceImages"]
+  }
+  const referenceImages = imageWithReferences.referenceImages ?? []
 
   return (
     <div className="mx-auto flex flex-col gap-5">
@@ -98,6 +107,9 @@ export function ImageDetailPage(props: {
         </div>
 
         <aside className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+          {referenceImages.length > 0 ? (
+            <ReferenceImages image={image} referenceImages={referenceImages} />
+          ) : null}
           <PromptBlock
             label="Image generation prompt"
             value={image.finalPrompt}
@@ -112,6 +124,44 @@ export function ImageDetailPage(props: {
           </dl>
         </aside>
       </section>
+    </div>
+  )
+}
+
+function ReferenceImages({
+  image,
+  referenceImages,
+}: {
+  image: ImageRecord
+  referenceImages: ImageRecord["referenceImages"]
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-sm font-medium text-muted-foreground">
+        Reference images
+      </div>
+      <div className="flex gap-2 overflow-x-auto">
+        {referenceImages.map((referenceImage) => (
+          <a
+            key={referenceImage.id}
+            href={imageReferenceUrl(image.id, referenceImage.id)}
+            target="_blank"
+            rel="noreferrer"
+            className="group relative size-20 shrink-0 overflow-hidden rounded-xl border border-border/50 bg-muted transition hover:border-ring/30"
+            title={referenceImage.originalName}
+          >
+            <img
+              src={imageReferenceUrl(image.id, referenceImage.id)}
+              alt={referenceImage.originalName}
+              className="size-full object-cover transition group-hover:scale-[1.04]"
+              loading="lazy"
+              decoding="async"
+              width={referenceImage.width}
+              height={referenceImage.height}
+            />
+          </a>
+        ))}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { constants as fsConstants } from "node:fs"
-import { access, stat } from "node:fs/promises"
+import { access, mkdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
+import sharp from "sharp"
 import { enhancePrompt } from "./enhancer.mjs"
 import { isAspectRatio, isEnhancerMode } from "./constants.mjs"
 import {
@@ -15,6 +16,19 @@ import { createCodexClient } from "#infra/agent-clients/codex.mjs"
 
 const resolutionPresets = new Set(["1k", "2k", "4k"])
 const imageTitleMaxLength = 60
+const referenceDirName = "references"
+const maxReferenceImages = 5
+const maxReferenceImageBytes = 10 * 1024 * 1024
+const referenceImageMimeTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+])
+const referenceImageExtensions = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+}
 
 export function createFramebookService({
   store = createFramebookStore(),
@@ -29,7 +43,7 @@ export function createFramebookService({
   async function listTopics({ includeArchived = false } = {}) {
     const [topics, images] = await Promise.all([
       store.listTopics(),
-      store.listImages(),
+      listImageRecords(),
     ])
     return topics
       .filter((topic) => includeArchived || !topic.archivedAt)
@@ -45,7 +59,7 @@ export function createFramebookService({
       throw notFound("Topic not found")
     }
 
-    const images = await store.listImages()
+    const images = await listImageRecords()
     return summarizeTopic(topic, images)
   }
 
@@ -112,7 +126,7 @@ export function createFramebookService({
 
     topics[topicIndex] = updated
     await store.writeTopics(topics)
-    const images = await store.listImages()
+    const images = await listImageRecords()
     return summarizeTopic(updated, images)
   }
 
@@ -132,7 +146,7 @@ export function createFramebookService({
 
     topics[topicIndex] = updated
     await store.writeTopics(topics)
-    const images = await store.listImages()
+    const images = await listImageRecords()
     return summarizeTopic(updated, images)
   }
 
@@ -152,7 +166,7 @@ export function createFramebookService({
 
     topics[topicIndex] = updated
     await store.writeTopics(topics)
-    const images = await store.listImages()
+    const images = await listImageRecords()
     return summarizeTopic(updated, images)
   }
 
@@ -171,7 +185,7 @@ export function createFramebookService({
   async function listStarredImages() {
     const [topics, images] = await Promise.all([
       store.listTopics(),
-      store.listImages(),
+      listImageRecords(),
     ])
     const activeTopicIds = new Set(
       topics.filter((topic) => !topic.archivedAt).map((topic) => topic.id)
@@ -190,7 +204,7 @@ export function createFramebookService({
   }
 
   async function listArchivedImages() {
-    const images = await store.listImages()
+    const images = await listImageRecords()
     return images
       .filter((image) => image.archivedAt)
       .sort((left, right) =>
@@ -222,13 +236,14 @@ export function createFramebookService({
       archivedAt: input.archivedAt ?? null,
       fileName: requireText(input.fileName, "Image file name is required"),
       mimeType: input.mimeType || "image/png",
+      referenceImages: normalizeReferenceImages(input.referenceImages),
       createdAt: input.createdAt || now,
     }
     const optimizedRecord = await maybeOptimizeImageRecord(record)
 
     const [topics, images] = await Promise.all([
       store.listTopics(),
-      store.listImages(),
+      listImageRecords(),
     ])
     await store.writeImages([...images, optimizedRecord])
     await touchTopic(topics, topic.id, optimizedRecord.createdAt)
@@ -236,7 +251,7 @@ export function createFramebookService({
   }
 
   async function updateImage(imageId, input) {
-    const images = await store.listImages()
+    const images = await listImageRecords()
     const imageIndex = images.findIndex((image) => image.id === imageId)
 
     if (imageIndex === -1) {
@@ -264,7 +279,7 @@ export function createFramebookService({
   }
 
   async function getImage(imageId) {
-    const images = await store.listImages()
+    const images = await listImageRecords()
     const image = images.find((candidate) => candidate.id === imageId)
 
     if (!image) {
@@ -281,6 +296,33 @@ export function createFramebookService({
       image.fileName
     )
     return { filePath, mimeType: image.mimeType, image }
+  }
+
+  async function getReferenceImageFile(imageId, referenceId) {
+    const image = await getImage(imageId)
+    const referenceImage = image.referenceImages.find(
+      (reference) => reference.id === referenceId
+    )
+
+    if (!referenceImage) {
+      throw notFound("Reference image not found")
+    }
+
+    const filePath = path.join(
+      store.getTopicAssetDir(image.topicId),
+      referenceImage.fileName
+    )
+
+    if (!(await fileExists(filePath))) {
+      throw notFound("Reference image file not found")
+    }
+
+    return {
+      filePath,
+      mimeType: referenceImage.mimeType,
+      referenceImage,
+      image,
+    }
   }
 
   async function getImageVariantFile(imageId, width) {
@@ -342,14 +384,21 @@ export function createFramebookService({
       rawPrompt,
       inputTitle: input.title,
     })
+    const jobId = store.createId()
+    const now = new Date().toISOString()
+    const referenceImages = await saveReferenceImages({
+      topic,
+      jobId,
+      files: input.referenceImages,
+      createdAt: now,
+    })
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
       aspectRatio,
       resolutionPreset,
     })
-    const now = new Date().toISOString()
     const job = {
-      id: store.createId(),
+      id: jobId,
       topicId: topic.id,
       status: "queued",
       title,
@@ -358,6 +407,7 @@ export function createFramebookService({
       finalPrompt,
       aspectRatio,
       resolutionPreset,
+      referenceImages,
       imageId: null,
       error: null,
       createdAt: now,
@@ -454,6 +504,10 @@ export function createFramebookService({
         aspectRatio: job.aspectRatio,
         resolutionPreset: job.resolutionPreset,
         topic,
+        referenceImages: referenceImagesWithPaths(
+          topic.id,
+          job.referenceImages
+        ),
         outputDir,
         fileName,
       })
@@ -466,6 +520,7 @@ export function createFramebookService({
         finalPrompt: job.finalPrompt,
         aspectRatio: job.aspectRatio,
         enhancerMode: topic.enhancerMode,
+        referenceImages: job.referenceImages,
         fileName: generated.fileName,
         mimeType: generated.mimeType,
       })
@@ -501,8 +556,12 @@ export function createFramebookService({
   }
 
   async function listImagesWithOptimization(shouldOptimize) {
-    const images = await store.listImages()
+    const images = await listImageRecords()
     return ensureImageOptimizations(images, shouldOptimize)
+  }
+
+  async function listImageRecords() {
+    return (await store.listImages()).map(normalizeImageRecord)
   }
 
   async function ensureImageOptimizations(images, shouldOptimize) {
@@ -529,7 +588,7 @@ export function createFramebookService({
   }
 
   async function optimizeImageInCollection(imageId, { force = false } = {}) {
-    const images = await store.listImages()
+    const images = await listImageRecords()
     const imageIndex = images.findIndex((candidate) => candidate.id === imageId)
 
     if (imageIndex === -1) {
@@ -615,6 +674,67 @@ export function createFramebookService({
 
     topics[topicIndex] = { ...topics[topicIndex], updatedAt }
     await store.writeTopics(topics)
+  }
+
+  async function saveReferenceImages({
+    topic,
+    jobId,
+    files,
+    createdAt = new Date().toISOString(),
+  }) {
+    const referenceFiles = Array.isArray(files) ? files : []
+
+    if (referenceFiles.length > maxReferenceImages) {
+      throw badRequest(`You can attach up to ${maxReferenceImages} images`)
+    }
+
+    const referenceImages = []
+
+    for (const file of referenceFiles) {
+      const mimeType = requireReferenceImageMimeType(file?.mimeType)
+      const buffer = requireReferenceImageBuffer(file?.buffer)
+      const sizeBytes = Number.isInteger(file?.sizeBytes)
+        ? file.sizeBytes
+        : buffer.byteLength
+
+      if (sizeBytes > maxReferenceImageBytes) {
+        throw badRequest("Reference image must be 10 MB or smaller")
+      }
+
+      const id = store.createId()
+      const fileName = [
+        referenceDirName,
+        safeReferenceSegment(jobId),
+        `${safeReferenceSegment(id)}${referenceImageExtensions[mimeType]}`,
+      ].join("/")
+      const targetPath = path.join(store.getTopicAssetDir(topic.id), fileName)
+      const dimensions = await readReferenceImageDimensions(buffer)
+
+      await mkdir(path.dirname(targetPath), { recursive: true })
+      await writeFile(targetPath, buffer)
+
+      referenceImages.push({
+        id,
+        fileName,
+        originalName: normalizeOriginalFileName(file?.originalName),
+        mimeType,
+        sizeBytes,
+        ...dimensions,
+        createdAt,
+      })
+    }
+
+    return referenceImages
+  }
+
+  function referenceImagesWithPaths(topicId, referenceImages) {
+    return normalizeReferenceImages(referenceImages).map((referenceImage) => ({
+      ...referenceImage,
+      filePath: path.join(
+        store.getTopicAssetDir(topicId),
+        referenceImage.fileName
+      ),
+    }))
   }
 
   async function resolveEnhancedPrompt({ topic, rawPrompt }) {
@@ -706,6 +826,7 @@ export function createFramebookService({
     updateImage,
     getImage,
     getImageFile,
+    getReferenceImageFile,
     getImageVariantFile,
     enhanceTopicPrompt,
     createGeneration,
@@ -758,6 +879,101 @@ function prewarmImageGenerator(codexClient) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function normalizeImageRecord(image) {
+  return {
+    ...image,
+    referenceImages: normalizeReferenceImages(image.referenceImages),
+  }
+}
+
+function normalizeReferenceImages(value) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((reference) => {
+      const id = optionalText(reference?.id)
+      const fileName = optionalText(reference?.fileName)
+      const mimeType = reference?.mimeType
+
+      if (!id || !fileName || !referenceImageMimeTypes.has(mimeType)) {
+        return null
+      }
+
+      return {
+        id,
+        fileName,
+        originalName: normalizeOriginalFileName(reference.originalName),
+        mimeType,
+        sizeBytes: Number.isInteger(reference.sizeBytes)
+          ? reference.sizeBytes
+          : 0,
+        ...(Number.isInteger(reference.width) && reference.width > 0
+          ? { width: reference.width }
+          : {}),
+        ...(Number.isInteger(reference.height) && reference.height > 0
+          ? { height: reference.height }
+          : {}),
+        createdAt:
+          optionalText(reference.createdAt) || new Date(0).toISOString(),
+      }
+    })
+    .filter(Boolean)
+}
+
+function requireReferenceImageMimeType(value) {
+  const mimeType = String(value ?? "").toLowerCase()
+
+  if (!referenceImageMimeTypes.has(mimeType)) {
+    throw badRequest("Reference image must be a PNG, JPEG, or WebP file")
+  }
+
+  return mimeType
+}
+
+function requireReferenceImageBuffer(value) {
+  if (!Buffer.isBuffer(value) || value.byteLength === 0) {
+    throw badRequest("Reference image file is required")
+  }
+
+  return value
+}
+
+async function readReferenceImageDimensions(buffer) {
+  try {
+    const metadata = await sharp(buffer).metadata()
+    return {
+      ...(Number.isInteger(metadata.width) && metadata.width > 0
+        ? { width: metadata.width }
+        : {}),
+      ...(Number.isInteger(metadata.height) && metadata.height > 0
+        ? { height: metadata.height }
+        : {}),
+    }
+  } catch (error) {
+    throw badRequest(
+      `Reference image could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+  }
+}
+
+function normalizeOriginalFileName(value) {
+  return (
+    path
+      .basename(String(value ?? "reference image"))
+      .replace(/\s+/gu, " ")
+      .trim()
+      .slice(0, 180) || "reference image"
+  )
+}
+
+function safeReferenceSegment(value) {
+  return String(value).replace(/[^a-zA-Z0-9._-]/g, "_")
 }
 
 function hasCompleteOptimization(image) {
@@ -825,6 +1041,7 @@ function normalizeGenerationJob(job) {
   return {
     ...job,
     title: normalizeImageTitle(job.title) || titleFromPrompt(job.rawPrompt),
+    referenceImages: normalizeReferenceImages(job.referenceImages),
   }
 }
 

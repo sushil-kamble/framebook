@@ -14,6 +14,7 @@ import {
   buildPromptEnhancementPrompt,
   CodexAppServerImageClient,
   CodexAppServerSession,
+  createCodexClient,
   createFakeCodexClient,
 } from "../src/infrastructure/agent-clients/codex.mjs"
 
@@ -658,6 +659,172 @@ describe("framebook service", () => {
     await expect(service.listImages(topic.id)).resolves.toHaveLength(1)
   })
 
+  it("stores reference images on generation jobs and generated image records", async () => {
+    const referenceDataDir = path.join(dataDir, "reference-images")
+    const referenceBuffer = await createPngBuffer({ width: 16, height: 10 })
+    const capturedReferenceImages = []
+    const fakeCodexClient = createFakeCodexClient()
+    const referenceService = createFramebookService({
+      store: createFramebookStore({ dataDir: referenceDataDir }),
+      codexClient: {
+        async generateImage(input) {
+          capturedReferenceImages.push(...input.referenceImages)
+          return fakeCodexClient.generateImage(input)
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(referenceService)
+
+    const job = await referenceService.createGeneration(topic.id, {
+      rawPrompt: "Change the shirt color but keep the face the same",
+      aspectRatio: "4:3",
+      referenceImages: [
+        {
+          originalName: "subject.png",
+          mimeType: "image/png",
+          sizeBytes: referenceBuffer.byteLength,
+          buffer: referenceBuffer,
+        },
+      ],
+    })
+
+    expect(job.referenceImages).toHaveLength(1)
+    expect(job.referenceImages[0]).toMatchObject({
+      originalName: "subject.png",
+      mimeType: "image/png",
+      sizeBytes: referenceBuffer.byteLength,
+      width: 16,
+      height: 10,
+    })
+    expect(job.referenceImages[0].fileName).toMatch(
+      /^references\/.+\/.+\.png$/u
+    )
+    expect(job.referenceImages[0]).not.toHaveProperty("filePath")
+    await expect(
+      access(
+        path.join(
+          referenceDataDir,
+          "images",
+          topic.id,
+          job.referenceImages[0].fileName
+        )
+      )
+    ).resolves.toBeUndefined()
+
+    await referenceService.runGenerationJob(job.id)
+    const images = await referenceService.listImages(topic.id)
+
+    expect(images[0].referenceImages).toEqual(job.referenceImages)
+    expect(capturedReferenceImages).toHaveLength(1)
+    expect(capturedReferenceImages[0]).toMatchObject({
+      originalName: "subject.png",
+      filePath: path.join(
+        referenceDataDir,
+        "images",
+        topic.id,
+        job.referenceImages[0].fileName
+      ),
+    })
+    await referenceService.close()
+  })
+
+  it("accepts multipart reference images through the generation endpoint", async () => {
+    const topic = await createTopic(service)
+    const formData = new FormData()
+    formData.append("rawPrompt", "Make the subject wear a blue t-shirt")
+    formData.append("aspectRatio", "4:3")
+    formData.append(
+      "referenceImages",
+      new File(
+        [await createPngBuffer({ width: 12, height: 12 })],
+        "subject.png",
+        {
+          type: "image/png",
+        }
+      )
+    )
+
+    await withServer(service, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/topics/${topic.id}/generations`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      )
+
+      expect(response.status).toBe(202)
+      const body = await response.json()
+      expect(body.job.referenceImages).toHaveLength(1)
+      expect(body.job.referenceImages[0]).toMatchObject({
+        originalName: "subject.png",
+        mimeType: "image/png",
+        width: 12,
+        height: 12,
+      })
+
+      const finishedJob = await service.runGenerationJob(body.job.id)
+      const referenceResponse = await fetch(
+        `${baseUrl}/api/images/${finishedJob.imageId}/references/${body.job.referenceImages[0].id}/file`
+      )
+
+      expect(referenceResponse.status).toBe(200)
+      expect(referenceResponse.headers.get("content-type")).toContain(
+        "image/png"
+      )
+      expect(
+        (await referenceResponse.arrayBuffer()).byteLength
+      ).toBeGreaterThan(0)
+    })
+  })
+
+  it("rejects invalid multipart reference image uploads", async () => {
+    const topic = await createTopic(service)
+
+    await withServer(service, async (baseUrl) => {
+      const tooMany = new FormData()
+      tooMany.append("rawPrompt", "Use these references")
+      for (let index = 0; index < 6; index += 1) {
+        tooMany.append(
+          "referenceImages",
+          new File(
+            [await createPngBuffer({ width: 4, height: 4 })],
+            `ref-${index}.png`,
+            {
+              type: "image/png",
+            }
+          )
+        )
+      }
+
+      const tooManyResponse = await fetch(
+        `${baseUrl}/api/topics/${topic.id}/generations`,
+        { method: "POST", body: tooMany }
+      )
+      expect(tooManyResponse.status).toBe(400)
+      await expect(tooManyResponse.json()).resolves.toMatchObject({
+        error: "You can attach up to 5 images",
+      })
+
+      const unsupported = new FormData()
+      unsupported.append("rawPrompt", "Use this reference")
+      unsupported.append(
+        "referenceImages",
+        new File(["not an image"], "notes.txt", { type: "text/plain" })
+      )
+
+      const unsupportedResponse = await fetch(
+        `${baseUrl}/api/topics/${topic.id}/generations`,
+        { method: "POST", body: unsupported }
+      )
+      expect(unsupportedResponse.status).toBe(400)
+      await expect(unsupportedResponse.json()).resolves.toMatchObject({
+        error: "Reference image must be a PNG, JPEG, or WebP file",
+      })
+    })
+  })
+
   it("builds the codex app-server prompt with a real image output contract", async () => {
     const topic = await createTopic(service)
     const outputPath = path.join(dataDir, "images", topic.id, "image.png")
@@ -677,6 +844,35 @@ describe("framebook service", () => {
     expect(prompt).toContain("Morning tea stall")
     expect(prompt).toContain("Final cinematic tea stall prompt")
     expect(prompt).toContain(outputPath)
+  })
+
+  it("builds the codex app-server prompt with reference image paths", async () => {
+    const topic = await createTopic(service)
+    const referencePath = path.join(
+      dataDir,
+      "images",
+      topic.id,
+      "reference.png"
+    )
+    const prompt = buildImageGenerationPrompt({
+      prompt: "Change the t-shirt color but preserve the face.",
+      rawPrompt: "Change the t-shirt color",
+      aspectRatio: "4:3",
+      resolutionPreset: "1k",
+      topic,
+      referenceImages: [
+        {
+          originalName: "subject.png",
+          filePath: referencePath,
+        },
+      ],
+      outputPath: path.join(dataDir, "images", topic.id, "image.png"),
+    })
+
+    expect(prompt).toContain("Reference images:")
+    expect(prompt).toContain(referencePath)
+    expect(prompt).toContain("subject.png")
+    expect(prompt).toContain("visual references")
   })
 
   it("builds the codex app-server prompt enhancement contract", async () => {
@@ -729,16 +925,59 @@ describe("framebook service", () => {
       })
 
       expect(
-        sessions.map(({ model, effort, serviceTier }) => ({
-          model,
-          effort,
-          serviceTier,
-        }))
+        sessions.map(
+          ({ model, effort, serviceTier, appServerArgs, logStderr }) => ({
+            model,
+            effort,
+            serviceTier,
+            appServerArgs,
+            logStderr,
+          })
+        )
       ).toEqual([
-        { model: "gpt-5.4-mini", effort: "low", serviceTier: "fast" },
-        { model: "gpt-5.4-mini", effort: "medium", serviceTier: undefined },
-        { model: "gpt-5.5", effort: "medium", serviceTier: "fast" },
+        {
+          model: "gpt-5.4-mini",
+          effort: "low",
+          serviceTier: "fast",
+          appServerArgs: ["--disable", "plugins", "--disable", "apps"],
+          logStderr: false,
+        },
+        {
+          model: "gpt-5.4-mini",
+          effort: "medium",
+          serviceTier: undefined,
+          appServerArgs: ["--disable", "plugins", "--disable", "apps"],
+          logStderr: false,
+        },
+        {
+          model: "gpt-5.5",
+          effort: "medium",
+          serviceTier: "fast",
+          appServerArgs: ["--disable", "plugins", "--disable", "apps"],
+          logStderr: false,
+        },
       ])
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("isolates codex app-server sessions from user apps and plugin MCP servers", async () => {
+    const client = createCodexClient({
+      env: {
+        ...process.env,
+        FRAMEBOOK_CODEX_LOG_STDERR: "1",
+      },
+    })
+
+    try {
+      expect(client.appServerArgs).toEqual([
+        "--disable",
+        "plugins",
+        "--disable",
+        "apps",
+      ])
+      expect(client.logStderr).toBe(true)
     } finally {
       await client.close()
     }
@@ -1476,6 +1715,19 @@ async function writePng(filePath, { width, height }) {
   })
     .png()
     .toFile(filePath)
+}
+
+async function createPngBuffer({ width, height }) {
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: "#336699",
+    },
+  })
+    .png()
+    .toBuffer()
 }
 
 async function withServer(service, callback) {

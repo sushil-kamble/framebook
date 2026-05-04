@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs"
 import { spawn } from "node:child_process"
+import Busboy from "busboy"
 import {
   corsHeaders,
   sendJson,
@@ -9,6 +10,13 @@ import {
 import { createFramebookService } from "#domains/framebook/service.mjs"
 
 let framebookService
+const maxReferenceImages = 5
+const maxReferenceImageBytes = 10 * 1024 * 1024
+const referenceImageMimeTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+])
 
 export async function routeRequest(request, response) {
   const url = new URL(request.url ?? "/", "http://127.0.0.1")
@@ -125,9 +133,12 @@ export async function routeRequest(request, response) {
       /^\/api\/topics\/([^/]+)\/generations$/u
     )
     if (generationMatch && request.method === "POST") {
+      const generationInput = isMultipartRequest(request)
+        ? await readGenerationMultipartBody(request)
+        : await readJsonBody(request)
       const job = await getFramebookService().createGeneration(
         decodeURIComponent(generationMatch[1]),
-        await readJsonBody(request)
+        generationInput
       )
       sendJson(response, 202, { job })
       return
@@ -215,6 +226,20 @@ export async function routeRequest(request, response) {
       return
     }
 
+    const referenceFileMatch = pathname.match(
+      /^\/api\/images\/([^/]+)\/references\/([^/]+)\/file$/u
+    )
+    if (referenceFileMatch && request.method === "GET") {
+      const { filePath, mimeType } =
+        await getFramebookService().getReferenceImageFile(
+          decodeURIComponent(referenceFileMatch[1]),
+          decodeURIComponent(referenceFileMatch[2])
+        )
+      response.writeHead(200, { ...corsHeaders(), "content-type": mimeType })
+      createReadStream(filePath).pipe(response)
+      return
+    }
+
     const revealMatch = pathname.match(/^\/api\/images\/([^/]+)\/reveal$/u)
     if (revealMatch && request.method === "POST") {
       const { filePath } = await getFramebookService().getImageFile(
@@ -253,6 +278,128 @@ export async function closeFramebookService() {
   const service = framebookService
   framebookService = undefined
   await service?.close?.()
+}
+
+function isMultipartRequest(request) {
+  return String(request.headers["content-type"] ?? "")
+    .toLowerCase()
+    .startsWith("multipart/form-data")
+}
+
+async function readGenerationMultipartBody(request) {
+  return new Promise((resolve, reject) => {
+    const fields = {}
+    const referenceImages = []
+    let parser
+    let parserError = null
+
+    try {
+      parser = Busboy({
+        headers: request.headers,
+        limits: {
+          files: maxReferenceImages + 1,
+          fileSize: maxReferenceImageBytes + 1,
+        },
+      })
+    } catch (error) {
+      reject(badRequest(`Invalid multipart request: ${errorMessage(error)}`))
+      return
+    }
+
+    parser.on("field", (name, value) => {
+      if (
+        name === "rawPrompt" ||
+        name === "enhancedPrompt" ||
+        name === "title" ||
+        name === "aspectRatio" ||
+        name === "resolutionPreset"
+      ) {
+        fields[name] = value
+      }
+    })
+
+    parser.on("file", (name, file, info) => {
+      const chunks = []
+      let sizeBytes = 0
+      const mimeType = String(info.mimeType ?? "").toLowerCase()
+
+      if (name !== "referenceImages") {
+        parserError ??= badRequest("Unexpected file field")
+        file.resume()
+        return
+      }
+
+      if (referenceImages.length >= maxReferenceImages) {
+        parserError ??= badRequest(
+          `You can attach up to ${maxReferenceImages} images`
+        )
+        file.resume()
+        return
+      }
+
+      if (!referenceImageMimeTypes.has(mimeType)) {
+        parserError ??= badRequest(
+          "Reference image must be a PNG, JPEG, or WebP file"
+        )
+        file.resume()
+        return
+      }
+
+      file.on("data", (chunk) => {
+        sizeBytes += chunk.length
+        if (sizeBytes <= maxReferenceImageBytes) {
+          chunks.push(chunk)
+        }
+      })
+
+      file.on("limit", () => {
+        parserError ??= badRequest("Reference image must be 10 MB or smaller")
+      })
+
+      file.on("error", (error) => {
+        parserError ??= error
+      })
+
+      file.on("end", () => {
+        if (sizeBytes > maxReferenceImageBytes) {
+          parserError ??= badRequest("Reference image must be 10 MB or smaller")
+          return
+        }
+
+        referenceImages.push({
+          originalName: info.filename,
+          mimeType,
+          sizeBytes,
+          buffer: Buffer.concat(chunks),
+        })
+      })
+    })
+
+    parser.on("error", (error) => {
+      parserError ??= error
+    })
+
+    parser.on("finish", () => {
+      if (parserError) {
+        reject(parserError)
+        return
+      }
+
+      resolve({ ...fields, referenceImages })
+    })
+
+    request.pipe(parser)
+  })
+}
+
+function badRequest(message) {
+  const error = new Error(message)
+  error.statusCode = 400
+  return error
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function revealPath(filePath) {

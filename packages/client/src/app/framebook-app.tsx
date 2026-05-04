@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "@tanstack/react-router"
 import { X } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
   defaultTopicDraft,
@@ -42,6 +42,19 @@ import type {
 
 const generationToastId = "generation"
 const promptEnhancementToastId = "prompt-enhancement"
+const maxReferenceImages = 5
+const maxReferenceImageBytes = 10 * 1024 * 1024
+const referenceImageMimeTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+])
+
+export interface ReferenceImageAttachment {
+  id: string
+  file: File
+  previewUrl: string
+}
 
 export function FramebookApp({
   routeScreen,
@@ -74,6 +87,10 @@ export function FramebookApp({
   const [userPrompt, setUserPrompt] = useState("")
   const [generationPrompt, setGenerationPrompt] = useState("")
   const [promptMode, setPromptMode] = useState<"user" | "generation">("user")
+  const [referenceImages, setReferenceImages] = useState<
+    Array<ReferenceImageAttachment>
+  >([])
+  const referenceImagesRef = useRef(referenceImages)
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
   const [selectedResolutionPreset, setSelectedResolutionPreset] =
@@ -135,6 +152,18 @@ export function FramebookApp({
     isLoadingImageDetail &&
     !activeDetailImage
   const isImmersiveScreen = screen === "settings" || screen === "topic-editor"
+
+  useEffect(() => {
+    referenceImagesRef.current = referenceImages
+  }, [referenceImages])
+
+  useEffect(() => {
+    return () => {
+      for (const referenceImage of referenceImagesRef.current) {
+        revokeObjectUrl(referenceImage.previewUrl)
+      }
+    }
+  }, [])
 
   const loadTopics = useCallback(async () => {
     setIsLoadingTopics(true)
@@ -551,6 +580,81 @@ export function FramebookApp({
     setUserPrompt(value)
   }
 
+  const addReferenceImages = (files: Array<File>) => {
+    const validFiles: Array<File> = []
+
+    for (const file of files) {
+      if (!referenceImageMimeTypes.has(file.type)) {
+        toast.error("Reference image must be a PNG, JPEG, or WebP file")
+        continue
+      }
+
+      if (file.size > maxReferenceImageBytes) {
+        toast.error("Reference image must be 10 MB or smaller")
+        continue
+      }
+
+      validFiles.push(file)
+    }
+
+    if (validFiles.length === 0) {
+      return
+    }
+
+    setReferenceImages((current) => {
+      const availableSlots = maxReferenceImages - current.length
+
+      if (availableSlots <= 0) {
+        toast.error(`You can attach up to ${maxReferenceImages} images`)
+        return current
+      }
+
+      if (validFiles.length > availableSlots) {
+        toast.error(`You can attach up to ${maxReferenceImages} images`)
+      }
+
+      const nextAttachments = validFiles
+        .slice(0, availableSlots)
+        .map((file) => ({
+          id: createClientId(),
+          file,
+          previewUrl: createObjectUrl(file),
+        }))
+
+      return [...current, ...nextAttachments]
+    })
+  }
+
+  const removeReferenceImage = (referenceImageId: string) => {
+    setReferenceImages((current) => {
+      const removed = current.find(
+        (referenceImage) => referenceImage.id === referenceImageId
+      )
+
+      if (removed) {
+        revokeObjectUrl(removed.previewUrl)
+      }
+
+      return current.filter(
+        (referenceImage) => referenceImage.id !== referenceImageId
+      )
+    })
+  }
+
+  const clearReferenceImages = () => {
+    setReferenceImages((current) => {
+      for (const referenceImage of current) {
+        revokeObjectUrl(referenceImage.previewUrl)
+      }
+
+      return []
+    })
+  }
+
+  const showReferenceImageError = (message: string) => {
+    toast.error(message)
+  }
+
   const generateCurrentPrompt = async () => {
     const submittedPromptValue =
       promptMode === "generation" ? generationPrompt : userPrompt
@@ -569,16 +673,21 @@ export function FramebookApp({
         userPrompt.trim() || submittedPromptValue.trim()
       const submittedGenerationPrompt =
         promptMode === "generation" ? generationPrompt.trim() : ""
-      const response = await framebookApi.createGeneration(activeTopic.id, {
-        rawPrompt: submittedUserPrompt,
-        enhancedPrompt: submittedGenerationPrompt,
-        aspectRatio: selectedAspectRatio,
-        resolutionPreset: selectedResolutionPreset,
-      })
+      const response = await framebookApi.createGeneration(
+        activeTopic.id,
+        {
+          rawPrompt: submittedUserPrompt,
+          enhancedPrompt: submittedGenerationPrompt,
+          aspectRatio: selectedAspectRatio,
+          resolutionPreset: selectedResolutionPreset,
+        },
+        referenceImages.map((referenceImage) => referenceImage.file)
+      )
       setJob(response.job)
       setUserPrompt("")
       setGenerationPrompt("")
       setPromptMode("user")
+      clearReferenceImages()
     } catch (requestError) {
       toast.dismiss(generationToastId)
       toast.error("Image generation failed")
@@ -750,6 +859,7 @@ export function FramebookApp({
                 topic={activeTopic}
                 images={images}
                 promptValue={promptValue}
+                referenceImages={referenceImages}
                 selectedAspectRatio={selectedAspectRatio}
                 selectedResolutionPreset={selectedResolutionPreset}
                 favoriteOnly={favoriteOnly}
@@ -761,6 +871,9 @@ export function FramebookApp({
                 onEditTopic={() => startEditTopic(activeTopic)}
                 onArchiveTopic={archiveActiveTopic}
                 onPromptChange={updatePrompt}
+                onAddReferenceImages={addReferenceImages}
+                onRemoveReferenceImage={removeReferenceImage}
+                onReferenceImageError={showReferenceImageError}
                 onAspectRatioChange={setSelectedAspectRatio}
                 onResolutionPresetChange={setSelectedResolutionPreset}
                 onEnhancePrompt={enhanceCurrentPrompt}
@@ -855,4 +968,22 @@ function updateStarredImages(current: Array<ImageRecord>, image: ImageRecord) {
   return next.sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt)
   )
+}
+
+function createClientId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function createObjectUrl(file: File) {
+  return typeof window.URL.createObjectURL === "function"
+    ? window.URL.createObjectURL(file)
+    : ""
+}
+
+function revokeObjectUrl(value: string) {
+  if (value && typeof window.URL.revokeObjectURL === "function") {
+    window.URL.revokeObjectURL(value)
+  }
 }

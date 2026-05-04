@@ -53,6 +53,17 @@ export interface ImageVariant {
   mimeType: "image/webp"
 }
 
+export interface GenerationReferenceImage {
+  id: string
+  fileName: string
+  originalName: string
+  mimeType: "image/png" | "image/jpeg" | "image/webp"
+  sizeBytes: number
+  width?: number
+  height?: number
+  createdAt: string
+}
+
 export interface ImageRecord {
   id: string
   topicId: string
@@ -72,6 +83,7 @@ export interface ImageRecord {
   height?: number
   placeholderColor?: string
   variants?: Array<ImageVariant>
+  referenceImages: Array<GenerationReferenceImage>
   createdAt: string
 }
 
@@ -85,6 +97,7 @@ export interface GenerationJob {
   finalPrompt: string
   aspectRatio: AspectRatio
   resolutionPreset: ResolutionPreset
+  referenceImages: Array<GenerationReferenceImage>
   imageId: string | null
   error: string | null
   createdAt: string

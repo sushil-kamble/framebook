@@ -41,10 +41,13 @@ export function createFramebookApi(
       : (options.baseUrl ?? defaultApiBaseUrl())
 
   async function request<TResponse>(input: string, init?: RequestInit) {
+    const isFormData = isFormDataBody(init?.body)
     const response = await fetcher(framebookApiUrl(input, baseUrl), {
       ...init,
       headers: {
-        ...(init?.body ? { "content-type": "application/json" } : {}),
+        ...(init?.body && !isFormData
+          ? { "content-type": "application/json" }
+          : {}),
         ...init?.headers,
       },
     })
@@ -116,12 +119,21 @@ export function createFramebookApi(
         }
       )
     },
-    async createGeneration(topicId: string, input: CreateGenerationRequest) {
+    async createGeneration(
+      topicId: string,
+      input: CreateGenerationRequest,
+      referenceImages: Array<File> = []
+    ) {
+      const body =
+        referenceImages.length > 0
+          ? generationFormData(input, referenceImages)
+          : JSON.stringify(input)
+
       return request<GenerationJobResponse>(
         `/api/topics/${encodeURIComponent(topicId)}/generations`,
         {
           method: "POST",
-          body: JSON.stringify(input),
+          body,
         }
       )
     },
@@ -162,6 +174,38 @@ export function createFramebookApi(
       )
     },
   }
+}
+
+function generationFormData(
+  input: CreateGenerationRequest,
+  referenceImages: Array<File>
+) {
+  const formData = new FormData()
+  appendFormField(formData, "rawPrompt", input.rawPrompt)
+  appendFormField(formData, "enhancedPrompt", input.enhancedPrompt)
+  appendFormField(formData, "title", input.title)
+  appendFormField(formData, "aspectRatio", input.aspectRatio)
+  appendFormField(formData, "resolutionPreset", input.resolutionPreset)
+
+  for (const file of referenceImages) {
+    formData.append("referenceImages", file, file.name)
+  }
+
+  return formData
+}
+
+function appendFormField(
+  formData: FormData,
+  name: string,
+  value: string | undefined
+) {
+  if (value !== undefined && value !== "") {
+    formData.append(name, value)
+  }
+}
+
+function isFormDataBody(body: BodyInit | null | undefined) {
+  return typeof FormData !== "undefined" && body instanceof FormData
 }
 
 export function framebookApiUrl(input: string, baseUrl = defaultApiBaseUrl()) {

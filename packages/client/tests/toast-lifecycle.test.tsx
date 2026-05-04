@@ -65,6 +65,14 @@ describe("toast lifecycle", () => {
     mocks.framebookApi.enhancePrompt.mockResolvedValue({
       enhancedPrompt: "A refined prompt",
     })
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:reference"),
+    })
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    })
   })
 
   afterEach(() => {
@@ -132,6 +140,46 @@ describe("toast lifecycle", () => {
     })
   })
 
+  it("sends attached reference images only with generation requests", async () => {
+    const referenceImage = new File(["png"], "subject.png", {
+      type: "image/png",
+    })
+    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
+
+    fireEvent.change(
+      await screen.findByPlaceholderText(
+        "Describe the image you want to create..."
+      ),
+      { target: { value: "Change the t-shirt color" } }
+    )
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: { files: [referenceImage] },
+    })
+
+    await screen.findByText("1/5")
+    fireEvent.click(screen.getByRole("button", { name: "Enhance prompt" }))
+
+    await waitFor(() => {
+      expect(mocks.framebookApi.enhancePrompt).toHaveBeenCalledWith(
+        topicSummary.id,
+        { rawPrompt: "Change the t-shirt color" }
+      )
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(mocks.framebookApi.createGeneration).toHaveBeenCalledWith(
+        topicSummary.id,
+        expect.objectContaining({
+          rawPrompt: "Change the t-shirt color",
+          enhancedPrompt: "A refined prompt",
+        }),
+        [referenceImage]
+      )
+    })
+  })
+
   it("dismisses the prompt enhancement loading toast before showing success", async () => {
     render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
 
@@ -183,6 +231,7 @@ const queuedGenerationJob: GenerationJob = {
   finalPrompt: "A mountain railway poster",
   aspectRatio: "4:3",
   resolutionPreset: "1k",
+  referenceImages: [],
   imageId: null,
   error: null,
   createdAt: "2026-05-04T10:00:00.000Z",
