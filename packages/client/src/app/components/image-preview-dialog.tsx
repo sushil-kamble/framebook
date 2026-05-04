@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Download, FolderOpen, Share2, X } from "lucide-react"
+import { Archive, Download, FolderOpen, Share2, X } from "lucide-react"
 import {
   formatDate,
   formatViewerTimestamp,
@@ -22,6 +22,7 @@ export function ImagePreviewDialog(props: {
   onDownloadImage: (image: ImageRecord) => Promise<void>
   onRevealImage: (image: ImageRecord) => Promise<unknown>
   onShareImage: (image: ImageRecord) => Promise<void>
+  onArchiveImage: (image: ImageRecord) => Promise<void>
 }) {
   const image = props.image
   const [imageResolution, setImageResolution] = useState<{
@@ -98,6 +99,12 @@ export function ImagePreviewDialog(props: {
                 onClick={() => void props.onShareImage(image)}
               >
                 <Share2 />
+              </ViewerActionButton>
+              <ViewerActionButton
+                label="Archive image"
+                onClick={() => void props.onArchiveImage(image)}
+              >
+                <Archive />
               </ViewerActionButton>
               <ViewerActionButton label="Close viewer" onClick={props.onClose}>
                 <X />

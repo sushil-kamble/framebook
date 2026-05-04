@@ -1,6 +1,7 @@
 import { access, mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createFramebookService } from "../src/domains/framebook/service.mjs"
 import { createFramebookStore } from "../src/domains/framebook/storage.mjs"
@@ -110,6 +111,7 @@ describe("framebook service", () => {
       id: topic.id,
       instruction: topic.instruction,
     })
+    expect(images[0].archivedAt).toBeNull()
 
     const topics = await service.listTopics()
     expect(topics[0]).toMatchObject({
@@ -117,6 +119,111 @@ describe("framebook service", () => {
       favoriteCount: 1,
       latestImageId: image.id,
     })
+  })
+
+  it("archives individual images without deleting their records", async () => {
+    const topic = await createTopic(service)
+    const image = await service.addImageRecord({
+      topicId: topic.id,
+      rawPrompt: "Rainy scooter ride through coffee estate",
+      enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
+      finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
+      aspectRatio: "4:3",
+      enhancerMode: "doodle-explainer",
+      fileName: "scooter.svg",
+      mimeType: "image/svg+xml",
+      favorite: true,
+    })
+
+    const archived = await service.updateImage(image.id, { archived: true })
+
+    expect(archived.archivedAt).toEqual(expect.any(String))
+    await expect(service.listImages(topic.id)).resolves.toHaveLength(0)
+    await expect(service.getImage(image.id)).resolves.toMatchObject({
+      id: image.id,
+      archivedAt: archived.archivedAt,
+    })
+    await expect(service.listTopics()).resolves.toMatchObject([
+      {
+        id: topic.id,
+        imageCount: 0,
+        favoriteCount: 0,
+        latestImageId: null,
+      },
+    ])
+  })
+
+  it("lists starred images across active topics only", async () => {
+    const firstTopic = await createTopic(service)
+    const secondTopic = await service.createTopic({
+      name: "Market Food",
+      description: "Street food references.",
+      instruction: "Warm editorial food photography.",
+      defaultAspectRatio: "1:1",
+      basePromptDetails: "",
+      enhancerMode: "brand-product",
+    })
+    const archivedTopic = await service.createTopic({
+      name: "Archived Ideas",
+      description: "",
+      instruction: "Old references.",
+      defaultAspectRatio: "16:9",
+      basePromptDetails: "",
+      enhancerMode: "balanced",
+    })
+    await service.archiveTopic(archivedTopic.id)
+
+    const firstStarred = await service.addImageRecord({
+      topicId: firstTopic.id,
+      rawPrompt: "Rainy scooter ride through coffee estate",
+      enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
+      finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
+      aspectRatio: "4:3",
+      enhancerMode: "doodle-explainer",
+      fileName: "scooter.svg",
+      mimeType: "image/svg+xml",
+      favorite: true,
+      createdAt: "2026-05-04T10:00:00.000Z",
+    })
+    const newestStarred = await service.addImageRecord({
+      topicId: secondTopic.id,
+      rawPrompt: "Steaming momos on a market stall",
+      enhancedPrompt: "Enhanced steaming momos on a market stall.",
+      finalPrompt: "Enhanced steaming momos on a market stall.",
+      aspectRatio: "1:1",
+      enhancerMode: "brand-product",
+      fileName: "momos.svg",
+      mimeType: "image/svg+xml",
+      favorite: true,
+      createdAt: "2026-05-04T11:00:00.000Z",
+    })
+    await service.addImageRecord({
+      topicId: firstTopic.id,
+      rawPrompt: "Unstarred tea garden",
+      enhancedPrompt: "Enhanced unstarred tea garden.",
+      finalPrompt: "Enhanced unstarred tea garden.",
+      aspectRatio: "4:3",
+      enhancerMode: "storyboard",
+      fileName: "tea.svg",
+      mimeType: "image/svg+xml",
+      favorite: false,
+    })
+    await service.addImageRecord({
+      topicId: archivedTopic.id,
+      rawPrompt: "Archived topic image",
+      enhancedPrompt: "Enhanced archived topic image.",
+      finalPrompt: "Enhanced archived topic image.",
+      aspectRatio: "16:9",
+      enhancerMode: "balanced",
+      fileName: "archived.svg",
+      mimeType: "image/svg+xml",
+      favorite: true,
+    })
+
+    await expect(service.listStarredImages()).resolves.toEqual([
+      newestStarred,
+      firstStarred,
+    ])
   })
 
   it("enhances prompts with topic context, mode guidance, and aspect ratio", async () => {
@@ -181,6 +288,57 @@ describe("framebook service", () => {
 
     const { filePath } = await service.getImageFile(images[0].id)
     await expect(access(filePath)).resolves.toBeUndefined()
+  })
+
+  it("lists active generation jobs for a topic", async () => {
+    const topic = await createTopic(service)
+    const job = await service.createGeneration(topic.id, {
+      rawPrompt: "A rainy hill station market at dusk",
+      aspectRatio: "4:3",
+    })
+
+    await expect(
+      service.listGenerationJobs(topic.id, { activeOnly: true })
+    ).resolves.toEqual([job])
+  })
+
+  it("continues auto-started generation jobs without a client poller", async () => {
+    const fakeCodexClient = createFakeCodexClient()
+    const autoService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        async generateImage(input) {
+          await sleep(20)
+          return fakeCodexClient.generateImage(input)
+        },
+      },
+      autoRunJobs: true,
+    })
+    const topic = await createTopic(autoService)
+
+    const job = await autoService.createGeneration(topic.id, {
+      rawPrompt: "A red train crossing a stone viaduct in the Swiss Alps",
+      aspectRatio: "16:9",
+    })
+
+    expect(job.status).toBe("queued")
+
+    const finishedJob = await waitForJobStatus(autoService, job.id, "succeeded")
+    expect(finishedJob.imageId).toEqual(expect.any(String))
+    await expect(autoService.listImages(topic.id)).resolves.toHaveLength(1)
+  })
+
+  it("does not rerun terminal generation jobs", async () => {
+    const topic = await createTopic(service)
+    const job = await service.createGeneration(topic.id, {
+      rawPrompt: "A quiet mountain station platform",
+      aspectRatio: "16:9",
+    })
+
+    await service.runGenerationJob(job.id)
+    await service.runGenerationJob(job.id)
+
+    await expect(service.listImages(topic.id)).resolves.toHaveLength(1)
   })
 
   it("builds the codex app-server prompt with a real image output contract", async () => {
@@ -256,4 +414,18 @@ async function createTopic(service) {
       "Two travelers, one small backpack, recurring red scooter, misty hills",
     enhancerMode: "storyboard",
   })
+}
+
+async function waitForJobStatus(service, jobId, status) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const job = await service.getGenerationJob(jobId)
+
+    if (job.status === status) {
+      return job
+    }
+
+    await sleep(10)
+  }
+
+  throw new Error(`Generation job ${jobId} did not reach ${status}`)
 }

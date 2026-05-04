@@ -58,6 +58,7 @@ export interface ImageRecord {
   enhancerMode: EnhancerMode
   topicSnapshot: TopicSnapshot
   favorite: boolean
+  archivedAt: string | null
   fileName: string
   mimeType: string
   createdAt: string
@@ -127,8 +128,13 @@ export interface GenerationJobResponse {
   job: GenerationJob
 }
 
+export interface GenerationJobListResponse {
+  jobs: Array<GenerationJob>
+}
+
 export interface UpdateImageRequest {
   favorite?: boolean
+  archived?: boolean
 }
 
 export interface RevealImageResponse {

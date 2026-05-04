@@ -12,23 +12,22 @@ import { EmptyPanel } from "./components/empty-panel"
 import { ImageDetailPage } from "./components/image-detail-page"
 import { ImagePreviewDialog } from "./components/image-preview-dialog"
 import { SettingsScreen } from "./components/settings-screen"
+import { StarredScreen } from "./components/starred-screen"
 import { TopicEditorPage } from "./components/topic-editor-page"
 import {
   TopicWorkspace,
   TopicWorkspaceSkeleton,
 } from "./components/topic-workspace"
 import { TopicsScreen } from "./components/topics-screen"
+import { generationPollIntervalMs } from "./lib/constants"
 import {
-  generationPollAttempts,
-  generationPollIntervalMs,
-} from "./lib/constants"
-import {
-  delay,
   errorMessage,
   imageDownloadName,
   imageFileUrl,
   routeForScreen,
 } from "./lib/utils"
+import { useThemeMode } from "./lib/theme"
+import { copyTextToClipboard } from "./lib/share"
 import type { FramebookAppProps, Screen } from "./lib/types"
 import type { TopicDraft } from "@app/lib/topic-form"
 import type {
@@ -45,8 +44,10 @@ export function FramebookApp({
   routeImageId,
 }: FramebookAppProps = {}) {
   const navigate = useNavigate()
+  const { themeMode, setThemeMode } = useThemeMode()
   const [topics, setTopics] = useState<Array<TopicSummary>>([])
   const [images, setImages] = useState<Array<ImageRecord>>([])
+  const [starredImages, setStarredImages] = useState<Array<ImageRecord>>([])
   const [activeTopicId, setActiveTopicId] = useState<string | null>(
     routeTopicId ?? null
   )
@@ -65,11 +66,14 @@ export function FramebookApp({
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [isLoadingTopics, setIsLoadingTopics] = useState(true)
   const [isLoadingImages, setIsLoadingImages] = useState(false)
+  const [isLoadingStarredImages, setIsLoadingStarredImages] = useState(false)
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [job, setJob] = useState<GenerationJob | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewImageId, setPreviewImageId] = useState<string | null>(null)
   const [detailImage, setDetailImage] = useState<ImageRecord | null>(null)
+  const [imageDetailBackScreen, setImageDetailBackScreen] =
+    useState<Screen | null>(null)
 
   const activeTopic = useMemo(
     () => topics.find((topic) => topic.id === activeTopicId) ?? null,
@@ -78,8 +82,9 @@ export function FramebookApp({
   const previewImage = useMemo(
     () =>
       images.find((image) => image.id === previewImageId) ??
+      starredImages.find((image) => image.id === previewImageId) ??
       (detailImage?.id === previewImageId ? detailImage : null),
-    [detailImage, images, previewImageId]
+    [detailImage, images, previewImageId, starredImages]
   )
   const activeDetailImage = useMemo(
     () =>
@@ -87,10 +92,12 @@ export function FramebookApp({
     [detailImage, images, routeImageId]
   )
   const isLoadingActiveTopic =
-    (screen === "topic" || screen === "gallery") &&
+    screen === "topic" &&
     Boolean(routeTopicId ?? activeTopicId) &&
     isLoadingTopics &&
     !activeTopic
+  const activeGenerationJobId =
+    job && isActiveGenerationJob(job) ? job.id : null
 
   const loadTopics = useCallback(async () => {
     setIsLoadingTopics(true)
@@ -119,6 +126,39 @@ export function FramebookApp({
     []
   )
 
+  const loadStarredImages = useCallback(async () => {
+    setIsLoadingStarredImages(true)
+    try {
+      const response = await framebookApi.listStarredImages()
+      setStarredImages(response.images)
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+    } finally {
+      setIsLoadingStarredImages(false)
+    }
+  }, [])
+
+  const finishGenerationJob = useCallback(
+    async (finishedJob: GenerationJob) => {
+      if (finishedJob.status === "succeeded") {
+        await Promise.all([
+          loadTopics(),
+          activeTopicId === finishedJob.topicId
+            ? loadImages(finishedJob.topicId, favoriteOnly)
+            : Promise.resolve(),
+        ])
+        return
+      }
+
+      if (finishedJob.status === "failed") {
+        setError(
+          finishedJob.error || "Generation failed, but your prompt is safe."
+        )
+      }
+    },
+    [activeTopicId, favoriteOnly, loadImages, loadTopics]
+  )
+
   useEffect(() => {
     void loadTopics()
   }, [loadTopics])
@@ -133,6 +173,7 @@ export function FramebookApp({
 
     if (routeScreen !== "image-detail") {
       setDetailImage(null)
+      setImageDetailBackScreen(null)
     }
 
     if (routeScreen === "topic-editor" && !routeTopicId) {
@@ -163,6 +204,100 @@ export function FramebookApp({
       void loadImages(activeTopic.id, favoriteOnly)
     }
   }, [activeTopic, favoriteOnly, loadImages])
+
+  useEffect(() => {
+    if (screen === "starred" || screen === "gallery") {
+      void loadStarredImages()
+    }
+  }, [loadStarredImages, screen])
+
+  useEffect(() => {
+    if (!activeTopic?.id) {
+      setJob(null)
+      return
+    }
+
+    let cancelled = false
+    const topicId = activeTopic.id
+
+    async function reconnectActiveGeneration() {
+      try {
+        const response = await framebookApi.listGenerationJobs(topicId, {
+          activeOnly: true,
+        })
+
+        if (cancelled) {
+          return
+        }
+
+        const activeJob = response.jobs.length > 0 ? response.jobs[0] : null
+        setJob((current) => {
+          if (current?.topicId === topicId && isActiveGenerationJob(current)) {
+            return current
+          }
+
+          if (activeJob) {
+            return activeJob
+          }
+
+          return current?.topicId === topicId ? current : null
+        })
+
+        if (!activeJob) {
+          await Promise.all([loadTopics(), loadImages(topicId, favoriteOnly)])
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(errorMessage(requestError))
+        }
+      }
+    }
+
+    void reconnectActiveGeneration()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTopic?.id, favoriteOnly, loadImages, loadTopics])
+
+  useEffect(() => {
+    if (!activeGenerationJobId) {
+      return
+    }
+
+    let cancelled = false
+    const jobId = activeGenerationJobId
+
+    async function pollActiveGeneration() {
+      try {
+        const response = await framebookApi.getGenerationJob(jobId)
+
+        if (cancelled) {
+          return
+        }
+
+        setJob(response.job)
+
+        if (!isActiveGenerationJob(response.job)) {
+          await finishGenerationJob(response.job)
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(errorMessage(requestError))
+        }
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void pollActiveGeneration()
+    }, generationPollIntervalMs)
+    void pollActiveGeneration()
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [activeGenerationJobId, finishGenerationJob])
 
   useEffect(() => {
     if (activeTopic?.id) {
@@ -210,6 +345,9 @@ export function FramebookApp({
 
   const openImageDetail = (image: ImageRecord) => {
     setDetailImage(image)
+    setImageDetailBackScreen(
+      screen === "starred" || screen === "gallery" ? "starred" : "topic"
+    )
     void navigate({
       to: `/images/${encodeURIComponent(image.id)}`,
     } as Parameters<typeof navigate>[0])
@@ -311,44 +449,20 @@ export function FramebookApp({
 
     setError(null)
     try {
+      const submittedPrompt = rawPrompt.trim()
+      const submittedEnhancedPrompt = enhancedPrompt.trim()
       const response = await framebookApi.createGeneration(activeTopic.id, {
-        rawPrompt,
-        enhancedPrompt: enhancedPrompt.trim(),
+        rawPrompt: submittedPrompt,
+        enhancedPrompt: submittedEnhancedPrompt,
         aspectRatio: selectedAspectRatio,
         resolutionPreset: selectedResolutionPreset,
       })
       setJob(response.job)
-      await pollGeneration(response.job.id)
+      setRawPrompt("")
+      setEnhancedPrompt("")
     } catch (requestError) {
       setError(errorMessage(requestError))
     }
-  }
-
-  const pollGeneration = async (jobId: string) => {
-    for (let attempt = 0; attempt < generationPollAttempts; attempt += 1) {
-      await delay(generationPollIntervalMs)
-      const response = await framebookApi.getGenerationJob(jobId)
-      setJob(response.job)
-
-      if (response.job.status === "succeeded") {
-        await Promise.all([
-          loadTopics(),
-          activeTopic
-            ? loadImages(activeTopic.id, favoriteOnly)
-            : Promise.resolve(),
-        ])
-        return
-      }
-
-      if (response.job.status === "failed") {
-        setError(
-          response.job.error || "Generation failed, but your prompt is safe."
-        )
-        return
-      }
-    }
-
-    setError("Generation is still running. Refresh the topic in a moment.")
   }
 
   const reusePrompt = (image: ImageRecord) => {
@@ -381,7 +495,6 @@ export function FramebookApp({
       aspectRatio: image.aspectRatio,
     })
     setJob(response.job)
-    await pollGeneration(response.job.id)
   }
 
   const toggleFavorite = async (image: ImageRecord) => {
@@ -393,35 +506,63 @@ export function FramebookApp({
         candidate.id === response.image.id ? response.image : candidate
       )
     )
+    setStarredImages((current) => updateStarredImages(current, response.image))
     setDetailImage((current) =>
       current?.id === response.image.id ? response.image : current
     )
     await loadTopics()
   }
 
+  const archiveImage = async (image: ImageRecord) => {
+    try {
+      const response = await framebookApi.updateImage(image.id, {
+        archived: true,
+      })
+      setImages((current) =>
+        current.filter((candidate) => candidate.id !== response.image.id)
+      )
+      setStarredImages((current) =>
+        current.filter((candidate) => candidate.id !== response.image.id)
+      )
+      setDetailImage((current) =>
+        current?.id === response.image.id ? null : current
+      )
+      setPreviewImageId((current) =>
+        current === response.image.id ? null : current
+      )
+      await loadTopics()
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+    }
+  }
+
   const shareImage = async (image: ImageRecord) => {
     const url = new URL(imageFileUrl(image.id), window.location.href).toString()
 
-    try {
-      if ("share" in navigator && typeof navigator.share === "function") {
+    if ("share" in navigator && typeof navigator.share === "function") {
+      try {
         await navigator.share({
           title: image.title,
           text: image.rawPrompt,
           url,
         })
         return
+      } catch (shareError) {
+        if (
+          shareError instanceof DOMException &&
+          shareError.name === "AbortError"
+        ) {
+          return
+        }
       }
+    }
 
-      await navigator.clipboard.writeText(url)
-    } catch (shareError) {
-      if (
-        shareError instanceof DOMException &&
-        shareError.name === "AbortError"
-      ) {
-        return
-      }
+    const copied = await copyTextToClipboard(url)
 
-      setError(errorMessage(shareError))
+    if (!copied) {
+      setError(
+        "Could not copy the share link automatically. Open the image and copy the URL from the address bar."
+      )
     }
   }
 
@@ -451,10 +592,12 @@ export function FramebookApp({
       <div className="flex min-h-svh">
         <Sidebar
           screen={screen}
+          themeMode={themeMode}
           onNavigate={navigateTo}
           onCreateTopic={startCreateTopic}
+          onThemeModeChange={setThemeMode}
         />
-        <section className="min-w-0 flex-1 px-5 py-5 md:px-8">
+        <section className="min-w-0 flex-1 px-4 py-4 md:px-6">
           {error ? (
             <div className="mb-4 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               <span>{error}</span>
@@ -492,7 +635,7 @@ export function FramebookApp({
 
           {isLoadingActiveTopic ? <TopicWorkspaceSkeleton /> : null}
 
-          {(screen === "topic" || screen === "gallery") && activeTopic ? (
+          {screen === "topic" && activeTopic ? (
             <TopicWorkspace
               topic={activeTopic}
               images={images}
@@ -519,14 +662,23 @@ export function FramebookApp({
               }}
               onViewImageDetails={openImageDetail}
               onDownloadImage={downloadImage}
-              onShareImage={shareImage}
               onFavoriteFilterChange={setFavoriteOnly}
             />
           ) : null}
 
-          {(screen === "topic" || screen === "gallery") &&
-          !activeTopic &&
-          !isLoadingActiveTopic ? (
+          {screen === "starred" || screen === "gallery" ? (
+            <StarredScreen
+              images={starredImages}
+              isLoading={isLoadingStarredImages}
+              onToggleFavorite={toggleFavorite}
+              onPreviewImage={(image) => {
+                setPreviewImageId(image.id)
+              }}
+              onViewImageDetails={openImageDetail}
+            />
+          ) : null}
+
+          {screen === "topic" && !activeTopic && !isLoadingActiveTopic ? (
             <EmptyPanel
               title="Choose a topic"
               body="Create or open a topic before generating images."
@@ -544,7 +696,10 @@ export function FramebookApp({
               image={activeDetailImage}
               onBack={() => {
                 const topicId = activeDetailImage?.topicId ?? activeTopicId
-                navigateTo(topicId ? "topic" : "topics", topicId ?? undefined)
+                navigateTo(
+                  imageDetailBackScreen === "starred" ? "starred" : "topic",
+                  topicId ?? undefined
+                )
               }}
               onToggleFavorite={toggleFavorite}
               onReusePrompt={reusePrompt}
@@ -566,7 +721,28 @@ export function FramebookApp({
         onDownloadImage={downloadImage}
         onRevealImage={(image) => framebookApi.revealImage(image.id)}
         onShareImage={shareImage}
+        onArchiveImage={archiveImage}
       />
     </main>
+  )
+}
+
+function isActiveGenerationJob(job: GenerationJob) {
+  return job.status === "queued" || job.status === "running"
+}
+
+function updateStarredImages(current: Array<ImageRecord>, image: ImageRecord) {
+  if (!image.favorite || image.archivedAt) {
+    return current.filter((candidate) => candidate.id !== image.id)
+  }
+
+  const next = current.some((candidate) => candidate.id === image.id)
+    ? current.map((candidate) =>
+        candidate.id === image.id ? image : candidate
+      )
+    : [image, ...current]
+
+  return next.sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt)
   )
 }

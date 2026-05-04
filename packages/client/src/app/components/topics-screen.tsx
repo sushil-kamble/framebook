@@ -1,6 +1,5 @@
-import { ImageIcon, MoreVertical, Plus, Star } from "lucide-react"
+import { ImageIcon, Pencil, Plus } from "lucide-react"
 import { framebookApiUrl } from "@shared/api/framebook"
-import { cn } from "@shared/lib/utils"
 import { formatDate } from "../lib/utils"
 import { EmptyPanel } from "./empty-panel"
 import type { TopicSummary } from "@framebook/shared/contracts/framebook"
@@ -44,14 +43,18 @@ export function TopicsScreen({
       </header>
 
       {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2" aria-label="Loading topics">
+        <div
+          className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+          aria-label="Loading topics"
+        >
+          <TopicCardSkeleton />
           <TopicCardSkeleton />
           <TopicCardSkeleton />
         </div>
       ) : null}
 
       {!isLoading && topics.length > 0 ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {topics.map((topic) => (
             <TopicCard
               key={topic.id}
@@ -78,20 +81,19 @@ export function TopicsScreen({
 function TopicCardSkeleton() {
   return (
     <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
-      <Skeleton className="aspect-5/1 w-full rounded-none" />
+      <Skeleton className="aspect-video w-full rounded-none" />
       <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <Skeleton className="h-5 w-2/3" />
-            <Skeleton className="mt-2.5 h-3.5 w-5/6" />
-            <Skeleton className="mt-1.5 h-3.5 w-4/6" />
-          </div>
-          <Skeleton className="size-4 rounded-md" />
+        <div className="flex items-start justify-between gap-4">
+          <Skeleton className="h-5 w-2/5" />
+          <Skeleton className="mt-0.5 h-3 w-20" />
+        </div>
+        <div className="min-w-0">
+          <Skeleton className="mt-2.5 h-3.5 w-5/6" />
+          <Skeleton className="mt-1.5 h-3.5 w-4/6" />
         </div>
         <div className="mt-4 flex items-center justify-between gap-4">
           <Skeleton className="h-3.5 w-16" />
-          <Skeleton className="h-3.5 w-28" />
-          <Skeleton className="size-4 rounded-md" />
+          <Skeleton className="h-7 w-20 rounded-full" />
         </div>
       </div>
     </div>
@@ -108,14 +110,14 @@ function TopicCard({
   onEdit: () => void
 }) {
   return (
-    <article className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all duration-200 hover:border-white/10 hover:shadow-lg hover:shadow-black/25">
-      <div className="pointer-events-none absolute inset-0 bg-linear-to-br from-white/4 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+    <article className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all duration-200 hover:border-ring/25 hover:shadow-lg hover:shadow-black/15 dark:hover:border-white/10 dark:hover:shadow-black/25">
+      <div className="pointer-events-none absolute inset-0 bg-linear-to-br from-ring/8 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:from-white/4" />
       <button
         type="button"
         className="relative block w-full text-left"
         onClick={onOpen}
       >
-        <div className="relative aspect-5/1 overflow-hidden bg-muted">
+        <div className="relative aspect-video overflow-hidden bg-muted">
           {topic.latestImageId ? (
             <img
               src={framebookApiUrl(`/api/images/${topic.latestImageId}/file`)}
@@ -135,41 +137,42 @@ function TopicCard({
         </div>
 
         <div className="p-4 pb-3">
-          <div className="flex items-start justify-between gap-3">
+          <div>
             <div className="min-w-0">
-              <h2 className="truncate font-heading text-base font-semibold tracking-tight normal-case">
-                {topic.name}
-              </h2>
+              <div className="flex items-start justify-between gap-4">
+                <h2 className="min-w-0 truncate font-heading text-base font-semibold tracking-tight normal-case">
+                  {topic.name}
+                </h2>
+                <time
+                  className="mt-0.5 shrink-0 text-[11px] font-medium tracking-normal text-muted-foreground/65 normal-case"
+                  dateTime={topic.updatedAt}
+                >
+                  {formatDate(topic.updatedAt)}
+                </time>
+              </div>
               <p className="mt-1 line-clamp-2 text-sm tracking-normal text-muted-foreground normal-case">
                 {topic.description || topic.instruction}
               </p>
             </div>
-            <Star
-              className={cn(
-                "mt-0.5 size-4 shrink-0",
-                topic.favoriteCount > 0
-                  ? "fill-ring text-ring"
-                  : "text-muted-foreground/40"
-              )}
-            />
           </div>
         </div>
       </button>
       <div className="relative flex items-center justify-between px-4 pb-3.5 text-xs text-muted-foreground">
         <span className="tracking-normal normal-case">
           {topic.imageCount} images
+          {topic.favoriteCount > 0 ? `, ${topic.favoriteCount} starred` : ""}
         </span>
-        <span className="tracking-normal normal-case">
-          {formatDate(topic.updatedAt)}
-        </span>
-        <button
+        <Button
           type="button"
-          className="rounded-lg p-1.5 hover:bg-accent hover:text-accent-foreground"
+          variant="outline"
+          size="xs"
+          className="h-7 rounded-full px-2.5 text-[11px] text-muted-foreground hover:text-accent-foreground"
           onClick={onEdit}
           aria-label={`Edit ${topic.name}`}
         >
-          <MoreVertical className="size-3.5" />
-        </button>
+          <Pencil data-icon="inline-start" className="size-3" />
+          Edit
+        </Button>
       </div>
     </article>
   )

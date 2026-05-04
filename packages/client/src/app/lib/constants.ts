@@ -34,5 +34,4 @@ export const enhancerModeOptions: Array<{
   { value: "doodle-explainer", label: "Doodle / Explainer" },
 ]
 
-export const generationPollAttempts = 300
 export const generationPollIntervalMs = 2000

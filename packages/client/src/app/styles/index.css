@@ -102,6 +102,46 @@
   --sidebar-ring: #0099ff;
 }
 
+.light {
+  --background: #f7f6f2;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #ece9e2;
+  --secondary-foreground: #111111;
+  --muted: #eeeae2;
+  --muted-foreground: #6f6b64;
+  --accent: #ece9e2;
+  --accent-foreground: #111111;
+  --destructive: #c9345a;
+  --border: #ded8cc;
+  --input: #ffffff;
+  --ring: #0078d4;
+  --surface-2: #ebe6dc;
+  --hairline-soft: #e8e1d6;
+  --sidebar: #f1ede5;
+  --sidebar-foreground: #6f6b64;
+  --sidebar-primary: #111111;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #111111;
+  --sidebar-border: #ded8cc;
+  --sidebar-ring: #0078d4;
+  --shadow-card:
+    0 10px 30px rgba(47, 36, 20, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.85);
+  --shadow-dialog:
+    0 30px 90px rgba(47, 36, 20, 0.18), inset 0 0.5px 0 rgba(255, 255, 255, 0.9);
+  --shadow-glow:
+    0 0 0 1px rgba(0, 120, 212, 0.18), 0 0 22px rgba(0, 120, 212, 0.12);
+  --shadow-inset:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 0 0 1px var(--border);
+}
+
 .dark {
   --background: #090909;
   --foreground: #ffffff;
@@ -142,6 +182,14 @@
     background: var(--background);
   }
 
+  html.dark {
+    color-scheme: dark;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
@@ -167,6 +215,20 @@
       "ss03" 1,
       "ss07" 1;
     line-height: 1.3;
+  }
+
+  html.light body {
+    background-image:
+      radial-gradient(
+        circle at top right,
+        rgba(0, 120, 212, 0.09),
+        transparent 34%
+      ),
+      radial-gradient(
+        circle at bottom left,
+        rgba(255, 122, 61, 0.08),
+        transparent 28%
+      );
   }
 
   body::after {
@@ -260,8 +322,8 @@
 
   [data-variant="default"]:not(:disabled):hover {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.96),
-      0 10px 30px rgba(0, 0, 0, 0.28);
+      0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent),
+      0 10px 30px color-mix(in srgb, var(--foreground) 18%, transparent);
   }
 
   a {

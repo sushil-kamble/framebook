@@ -46,7 +46,7 @@ export function ImageDetailPage(props: {
             className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
             onClick={props.onBack}
           >
-            Gallery <span className="opacity-40">/</span>{" "}
+            Images <span className="opacity-40">/</span>{" "}
             {image.topicSnapshot.name}
           </button>
           <h1 className="line-clamp-2 font-heading text-2xl font-bold tracking-tight">
@@ -55,7 +55,7 @@ export function ImageDetailPage(props: {
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             <Badge variant="secondary">{image.aspectRatio}</Badge>
             <Badge variant={image.favorite ? "default" : "outline"}>
-              {image.favorite ? "Favorite" : "Not favorite"}
+              {image.favorite ? "Starred" : "Not starred"}
             </Badge>
             <Badge variant="outline">{modeLabel(image.enhancerMode)}</Badge>
             <Badge variant="outline">{formatDate(image.createdAt)}</Badge>
@@ -78,7 +78,7 @@ export function ImageDetailPage(props: {
               data-icon="inline-start"
               className={cn(image.favorite ? "fill-ring text-ring" : "")}
             />
-            Favorite
+            Starred
           </Button>
         </div>
       </header>

@@ -2,7 +2,22 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 
+import { defaultThemeMode, themeStorageKey } from "../app/lib/theme"
 import appCss from "../app/styles/index.css?url"
+
+const themeBootstrapScript = `
+(() => {
+  try {
+    const storedTheme = window.localStorage.getItem(${JSON.stringify(themeStorageKey)});
+    const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : ${JSON.stringify(defaultThemeMode)};
+    const root = document.documentElement;
+    root.classList.toggle("light", theme === "light");
+    root.classList.toggle("dark", theme === "dark");
+  } catch (storageError) {
+    document.documentElement.classList.add(${JSON.stringify(defaultThemeMode)});
+  }
+})();
+`
 
 export const Route = createRootRoute({
   head: () => ({
@@ -47,6 +62,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <HeadContent />
       </head>
       <body suppressHydrationWarning>

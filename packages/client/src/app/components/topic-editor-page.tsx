@@ -92,75 +92,77 @@ export function TopicEditorPage({
         </div>
       </header>
 
-      <section className="grid gap-5">
-        <div className="flex flex-col gap-5">
+      <section className="grid gap-4">
+        <div>
           <FormSection title="Topic Brief">
-            <Field label="Topic Name" error={errors.name}>
-              <input
-                value={draft.name}
-                onChange={(event) => updateDraft("name", event.target.value)}
-                className="h-12 w-full rounded-2xl border border-border bg-input px-4 text-base transition-[background-color,box-shadow,border-color] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 md:text-sm"
-                placeholder="e.g. Travel Poster Study"
-              />
-            </Field>
-          </FormSection>
+            <div className="flex flex-col gap-4">
+              <Field label="Topic Name" error={errors.name}>
+                <input
+                  value={draft.name}
+                  onChange={(event) => updateDraft("name", event.target.value)}
+                  className="h-10 w-full rounded-xl border border-border bg-input px-3.5 text-base transition-[background-color,box-shadow,border-color] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 md:text-sm"
+                  placeholder="e.g. Travel Poster Study"
+                />
+              </Field>
 
-          <FormSection title="Creative Direction">
-            <Field
-              label="Description / Topic Instruction"
-              error={errors.instruction}
-            >
-              <Textarea
-                value={draft.instruction}
-                onChange={(event) =>
-                  updateCreativeDirection(event.target.value)
-                }
-                rows={7}
-                className="min-h-44 resize-y"
-                placeholder="Describe what this topic is about and the direction every generation should follow."
-              />
-            </Field>
+              <Field
+                label="Description / Topic Instruction"
+                error={errors.instruction}
+              >
+                <Textarea
+                  value={draft.instruction}
+                  onChange={(event) =>
+                    updateCreativeDirection(event.target.value)
+                  }
+                  rows={5}
+                  className="min-h-32 resize-y"
+                  placeholder="Describe what this topic is about and the direction every generation should follow."
+                />
+              </Field>
+            </div>
           </FormSection>
         </div>
 
-        <aside className="flex flex-col gap-5">
+        <aside className="flex flex-col gap-4">
           <FormSection title="Generation Defaults">
-            <div className="flex flex-col gap-5">
-              <AspectRatioPicker
-                value={draft.defaultAspectRatio}
-                onChange={(value) => updateDraft("defaultAspectRatio", value)}
-              />
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <AspectRatioPicker
+                  value={draft.defaultAspectRatio}
+                  onChange={(value) => updateDraft("defaultAspectRatio", value)}
+                />
 
-              <div className="flex flex-col gap-2">
-                <label
-                  className="text-sm font-semibold"
-                  htmlFor="topic-enhancer-mode"
-                >
-                  Enhancer Mode
-                </label>
-                <Select
-                  value={draft.enhancerMode}
-                  onValueChange={(value) =>
-                    updateDraft("enhancerMode", value as EnhancerMode)
-                  }
-                >
-                  <SelectTrigger
-                    id="topic-enhancer-mode"
-                    className="w-full"
-                    aria-label="Enhancer Mode"
+                <div className="flex flex-col gap-2">
+                  <label
+                    className="text-sm font-semibold"
+                    htmlFor="topic-enhancer-mode"
                   >
-                    <SelectValue placeholder="Select enhancer mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {enhancerModeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                    Enhancer Mode
+                  </label>
+                  <Select
+                    value={draft.enhancerMode}
+                    onValueChange={(value) =>
+                      updateDraft("enhancerMode", value as EnhancerMode)
+                    }
+                  >
+                    <SelectTrigger
+                      id="topic-enhancer-mode"
+                      className="w-full"
+                      aria-label="Enhancer Mode"
+                    >
+                      <SelectValue placeholder="Select enhancer mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {enhancerModeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <Field label="Base Prompt Details">
@@ -226,8 +228,8 @@ function FormSection({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-2xl border border-border/60 bg-card/60 p-5 shadow-sm">
-      <div className="mb-4 flex items-center gap-2 border-b border-border/40 pb-4">
+    <section className="rounded-2xl border border-border/60 bg-card/60 p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2 border-b border-border/40 pb-3">
         <h3 className="font-heading text-sm font-semibold tracking-tight">
           {title}
         </h3>
@@ -248,7 +250,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold">{label}</span>
+      <span className="mb-1.5 block text-sm font-semibold">{label}</span>
       {children}
       {error ? (
         <span className="mt-1 block text-xs text-destructive">{error}</span>

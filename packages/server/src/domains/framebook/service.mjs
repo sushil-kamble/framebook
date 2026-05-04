@@ -11,6 +11,8 @@ export function createFramebookService({
   codexClient = createCodexClient(),
   autoRunJobs = true,
 } = {}) {
+  const jobRunners = new Map()
+
   async function listTopics({ includeArchived = false } = {}) {
     const [topics, images] = await Promise.all([
       store.listTopics(),
@@ -146,7 +148,24 @@ export function createFramebookService({
     const images = await store.listImages()
     return images
       .filter((image) => image.topicId === topicId)
+      .filter((image) => !image.archivedAt)
       .filter((image) => !favoriteOnly || image.favorite)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  async function listStarredImages() {
+    const [topics, images] = await Promise.all([
+      store.listTopics(),
+      store.listImages(),
+    ])
+    const activeTopicIds = new Set(
+      topics.filter((topic) => !topic.archivedAt).map((topic) => topic.id)
+    )
+
+    return images
+      .filter((image) => activeTopicIds.has(image.topicId))
+      .filter((image) => !image.archivedAt)
+      .filter((image) => image.favorite)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   }
 
@@ -170,6 +189,7 @@ export function createFramebookService({
       ),
       topicSnapshot: snapshotTopic(topic),
       favorite: Boolean(input.favorite),
+      archivedAt: input.archivedAt ?? null,
       fileName: requireText(input.fileName, "Image file name is required"),
       mimeType: input.mimeType || "image/png",
       createdAt: input.createdAt || now,
@@ -192,12 +212,19 @@ export function createFramebookService({
       throw notFound("Image not found")
     }
 
+    const current = images[imageIndex]
     const updated = {
-      ...images[imageIndex],
+      ...current,
       favorite:
         input.favorite === undefined
-          ? images[imageIndex].favorite
+          ? current.favorite
           : Boolean(input.favorite),
+      archivedAt:
+        input.archived === undefined
+          ? (current.archivedAt ?? null)
+          : input.archived
+            ? new Date().toISOString()
+            : null,
     }
 
     images[imageIndex] = updated
@@ -272,14 +299,32 @@ export function createFramebookService({
     await store.writeJobs([...jobs, job])
 
     if (autoRunJobs) {
-      setTimeout(() => {
-        runGenerationJob(job.id).catch((error) => {
-          console.error(error)
-        })
-      }, 0)
+      startGenerationJob(job.id)
     }
 
     return job
+  }
+
+  async function listGenerationJobs(
+    topicId,
+    { activeOnly = false, ensureActive = false } = {}
+  ) {
+    const topic = await ensureTopic(topicId)
+    const jobs = await store.listJobs()
+    const filteredJobs = jobs
+      .filter((job) => job.topicId === topic.id)
+      .filter((job) => !activeOnly || isActiveGenerationJob(job))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+
+    if (ensureActive) {
+      for (const job of filteredJobs) {
+        if (isActiveGenerationJob(job)) {
+          startGenerationJob(job.id)
+        }
+      }
+    }
+
+    return filteredJobs
   }
 
   async function getGenerationJob(jobId) {
@@ -294,6 +339,26 @@ export function createFramebookService({
   }
 
   async function runGenerationJob(jobId) {
+    if (jobRunners.has(jobId)) {
+      return jobRunners.get(jobId)
+    }
+
+    const promise = runGenerationJobInternal(jobId)
+    jobRunners.set(jobId, promise)
+
+    try {
+      return await promise
+    } finally {
+      jobRunners.delete(jobId)
+    }
+  }
+
+  async function runGenerationJobInternal(jobId) {
+    const currentJob = await getGenerationJob(jobId)
+    if (!isActiveGenerationJob(currentJob)) {
+      return currentJob
+    }
+
     let job = await updateJob(jobId, {
       status: "running",
       error: null,
@@ -342,6 +407,19 @@ export function createFramebookService({
     return job
   }
 
+  function startGenerationJob(jobId) {
+    if (!autoRunJobs || jobRunners.has(jobId)) {
+      return
+    }
+
+    void runGenerationJob(jobId).catch((error) => {
+      console.error(
+        `[framebook] generation job ${jobId} crashed outside job state`,
+        error
+      )
+    })
+  }
+
   async function ensureTopic(topicId) {
     const topics = await store.listTopics()
     const topic = topics.find((candidate) => candidate.id === topicId)
@@ -388,20 +466,26 @@ export function createFramebookService({
     archiveTopic,
     unarchiveTopic,
     listImages,
+    listStarredImages,
     addImageRecord,
     updateImage,
     getImage,
     getImageFile,
     enhanceTopicPrompt,
     createGeneration,
+    listGenerationJobs,
     getGenerationJob,
     runGenerationJob,
   }
 }
 
+function isActiveGenerationJob(job) {
+  return job.status === "queued" || job.status === "running"
+}
+
 function summarizeTopic(topic, images) {
   const topicImages = images
-    .filter((image) => image.topicId === topic.id)
+    .filter((image) => image.topicId === topic.id && !image.archivedAt)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   const latestImage = topicImages[0] ?? null
 

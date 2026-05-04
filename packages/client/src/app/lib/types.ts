@@ -2,6 +2,7 @@ export type Screen =
   | "topics"
   | "topic"
   | "gallery"
+  | "starred"
   | "settings"
   | "topic-editor"
   | "image-detail"

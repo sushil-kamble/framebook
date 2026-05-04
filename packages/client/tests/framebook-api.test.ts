@@ -75,6 +75,17 @@ describe("framebook api client", () => {
     )
   })
 
+  it("lists starred images through the global image endpoint", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ images: [] }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.listStarredImages()
+
+    expect(fetcher).toHaveBeenCalledWith("/api/images", expect.any(Object))
+  })
+
   it("unarchives topics through the expected endpoint", async () => {
     const fetcher = vi.fn(() =>
       Promise.resolve(Response.json({ topic: { id: "topic-1" } }))
@@ -88,6 +99,39 @@ describe("framebook api client", () => {
       expect.objectContaining({
         method: "POST",
       })
+    )
+  })
+
+  it("archives images through the image update endpoint", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ image: { id: "image-1" } }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.updateImage("image/with slash", { archived: true })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/images/image%2Fwith%20slash",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ archived: true }),
+      })
+    )
+  })
+
+  it("lists active generation jobs through the expected endpoint", async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = []
+    const fetcher: typeof fetch = (input, init) => {
+      calls.push({ input, init })
+      return Promise.resolve(Response.json({ jobs: [] }))
+    }
+    const api = createFramebookApi(fetcher)
+
+    await api.listGenerationJobs("topic/with slash", { activeOnly: true })
+
+    expect(calls).toHaveLength(1)
+    expect(calls.at(0)?.input).toBe(
+      "/api/topics/topic%2Fwith%20slash/generation-jobs?activeOnly=true"
     )
   })
 })

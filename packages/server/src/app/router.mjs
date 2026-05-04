@@ -100,6 +100,12 @@ export async function routeRequest(request, response) {
       return
     }
 
+    if (pathname === "/api/images" && request.method === "GET") {
+      const images = await getFramebookService().listStarredImages()
+      sendJson(response, 200, { images })
+      return
+    }
+
     const promptMatch = pathname.match(
       /^\/api\/topics\/([^/]+)\/prompt\/enhance$/u
     )
@@ -121,6 +127,21 @@ export async function routeRequest(request, response) {
         await readJsonBody(request)
       )
       sendJson(response, 202, { job })
+      return
+    }
+
+    const generationJobsMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/generation-jobs$/u
+    )
+    if (generationJobsMatch && request.method === "GET") {
+      const jobs = await getFramebookService().listGenerationJobs(
+        decodeURIComponent(generationJobsMatch[1]),
+        {
+          activeOnly: url.searchParams.get("activeOnly") === "true",
+          ensureActive: url.searchParams.get("ensureActive") !== "false",
+        }
+      )
+      sendJson(response, 200, { jobs })
       return
     }
 

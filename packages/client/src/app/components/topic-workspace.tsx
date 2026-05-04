@@ -1,13 +1,12 @@
 import {
   Archive,
-  Check,
   ImageIcon,
   Info,
   Loader2,
   Pencil,
+  Send,
   Sparkles,
   Star,
-  X,
 } from "lucide-react"
 import { cn } from "@shared/lib/utils"
 import { aspectRatioOptions, resolutionPresetOptions } from "../lib/constants"
@@ -30,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select"
-import { Separator } from "@/shared/ui/separator"
 import { Skeleton } from "@/shared/ui/skeleton"
 import { Textarea } from "@/shared/ui/textarea"
 
@@ -58,7 +56,6 @@ export function TopicWorkspace(props: {
   onPreviewImage: (image: ImageRecord) => void
   onViewImageDetails: (image: ImageRecord) => void
   onDownloadImage: (image: ImageRecord) => Promise<void>
-  onShareImage: (image: ImageRecord) => Promise<void>
   onFavoriteFilterChange: (value: boolean) => void
 }) {
   const canGenerate = Boolean(props.rawPrompt.trim())
@@ -66,19 +63,21 @@ export function TopicWorkspace(props: {
     props.job?.status === "queued" || props.job?.status === "running"
 
   return (
-    <div className="flex h-[calc(100svh-2.5rem)] w-full max-w-none flex-col gap-3">
-      <header className="flex flex-col gap-2.5 border-b border-border/60 pb-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2">
+      <header className="flex flex-col gap-2 border-b border-border/60 pb-2 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div className="mb-1 flex items-center gap-1.5">
             <button
               type="button"
-              className="transition hover:text-foreground"
+              className="text-[11px] font-medium text-muted-foreground/55 transition hover:text-foreground/70"
               onClick={props.onBack}
             >
               Topics
             </button>
-            <span className="opacity-40">/</span>
-            <span className="text-foreground/70">{props.topic.name}</span>
+            <span className="text-xs text-muted-foreground/35">/</span>
+            <span className="text-sm font-medium text-foreground/80">
+              {props.topic.name}
+            </span>
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -95,6 +94,7 @@ export function TopicWorkspace(props: {
         <GalleryCanvas
           images={props.images}
           isLoading={props.isLoadingImages}
+          isGenerating={isGenerating}
           favoriteOnly={props.favoriteOnly}
           onFavoriteFilterChange={props.onFavoriteFilterChange}
           onToggleFavorite={props.onToggleFavorite}
@@ -102,10 +102,7 @@ export function TopicWorkspace(props: {
           onViewImageDetails={props.onViewImageDetails}
         />
 
-        <Separator />
-
-        <div className="flex flex-col gap-2.5">
-          <GenerationStatus job={props.job} />
+        <div className="flex flex-col gap-2">
           <PromptComposer
             rawPrompt={props.rawPrompt}
             enhancedPrompt={props.enhancedPrompt}
@@ -129,10 +126,10 @@ export function TopicWorkspace(props: {
 export function TopicWorkspaceSkeleton() {
   return (
     <div
-      className="flex h-[calc(100svh-2.5rem)] w-full max-w-none flex-col gap-3"
+      className="flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2"
       aria-label="Loading topic workspace"
     >
-      <header className="flex flex-col gap-2.5 border-b border-border/60 pb-3 lg:flex-row lg:items-center lg:justify-between">
+      <header className="flex flex-col gap-2 border-b border-border/60 pb-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-1.5">
           <Skeleton className="h-4 w-12" />
           <Skeleton className="size-1 rounded-full" />
@@ -145,16 +142,13 @@ export function TopicWorkspaceSkeleton() {
       </header>
 
       <section className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-hidden px-3 pt-2 pb-3">
+        <div className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-2">
           <GallerySkeleton />
         </div>
 
-        <Separator />
-
-        <div className="flex flex-col gap-2.5">
-          <Skeleton className="h-11 rounded-xl" />
-          <div className="rounded-2xl border border-border/60 bg-card/80 p-3.5 shadow-sm backdrop-blur-sm">
-            <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-2">
+          <div className="rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur-sm">
+            <div className="flex flex-col gap-2">
               <Skeleton className="h-20 rounded-xl" />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex gap-2">
@@ -189,8 +183,8 @@ function PromptComposer(props: {
   onGenerate: () => void
 }) {
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/80 p-3.5 shadow-sm backdrop-blur-sm">
-      <div className="flex flex-col gap-2.5">
+    <div className="rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur-sm">
+      <div className="flex flex-col gap-2">
         <label className="sr-only" htmlFor="raw-prompt">
           Prompt
         </label>
@@ -207,13 +201,14 @@ function PromptComposer(props: {
             value={props.rawPrompt}
             onChange={(event) => props.onRawPromptChange(event.target.value)}
             rows={3}
-            className="min-h-20 resize-none border-border/50 bg-background/60 pr-28 pb-14 text-sm"
+            className="min-h-18 resize-none border-border/50 bg-background/60 pr-28 pb-13 text-sm"
             placeholder="Describe the image you want to create..."
           />
           <Button
             type="button"
             variant="outline"
             size="sm"
+            aria-label="Enhance prompt"
             disabled={
               !props.canGenerate || props.isEnhancing || props.isGenerating
             }
@@ -225,12 +220,11 @@ function PromptComposer(props: {
             ) : (
               <Sparkles data-icon="inline-start" />
             )}
-            Enhance
           </Button>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-2 sm:flex-row">
           <Select
             value={props.selectedAspectRatio}
@@ -290,7 +284,7 @@ function PromptComposer(props: {
             {props.isGenerating ? (
               <Loader2 data-icon="inline-start" className="animate-spin" />
             ) : (
-              <Sparkles data-icon="inline-start" />
+              <Send data-icon="inline-start" />
             )}
             Generate
           </Button>
@@ -300,67 +294,10 @@ function PromptComposer(props: {
   )
 }
 
-function GenerationStatus({ job }: { job: GenerationJob | null }) {
-  if (!job) {
-    return (
-      <div className="rounded-xl border border-border/50 bg-card/50 px-4 py-3 text-xs text-muted-foreground/60">
-        Generation status appears here after you create an image.
-      </div>
-    )
-  }
-
-  const running = job.status === "queued" || job.status === "running"
-
-  return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-xl border px-4 py-3 shadow-sm transition-all",
-        running
-          ? "border-ring/20 bg-ring/10"
-          : job.status === "succeeded"
-            ? "border-emerald-500/20 bg-emerald-500/5"
-            : "border-destructive/20 bg-destructive/5"
-      )}
-    >
-      <div className="flex items-center gap-3">
-        <div
-          className={cn(
-            "grid size-7 shrink-0 place-items-center rounded-lg",
-            running
-              ? "bg-ring/15"
-              : job.status === "succeeded"
-                ? "bg-emerald-500/15"
-                : "bg-destructive/15"
-          )}
-        >
-          {running ? (
-            <Loader2 className="size-3.5 animate-spin text-ring" />
-          ) : job.status === "succeeded" ? (
-            <Check className="size-3.5 text-emerald-400" />
-          ) : (
-            <X className="size-3.5 text-destructive" />
-          )}
-        </div>
-        <div>
-          <div className="text-sm font-semibold">
-            {running
-              ? "Generating via local server..."
-              : job.status === "succeeded"
-                ? "Generation complete"
-                : "Generation failed"}
-          </div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {job.status === "failed" ? job.error : `Job ${job.id.slice(0, 8)}`}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function GalleryCanvas(props: {
   images: Array<ImageRecord>
   isLoading: boolean
+  isGenerating: boolean
   favoriteOnly: boolean
   onFavoriteFilterChange: (value: boolean) => void
   onToggleFavorite: (image: ImageRecord) => void
@@ -369,10 +306,12 @@ function GalleryCanvas(props: {
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-1.5 pb-2">
         {props.isLoading ? <GallerySkeleton /> : null}
 
-        {!props.isLoading && props.images.length === 0 ? (
+        {!props.isLoading &&
+        props.images.length === 0 &&
+        !props.isGenerating ? (
           <div className="relative grid min-h-full place-items-center overflow-hidden rounded-xl border border-dashed border-border/60 text-center">
             <div className="pointer-events-none absolute inset-0 framer-grid opacity-20" />
             <div className="relative py-10">
@@ -387,12 +326,13 @@ function GalleryCanvas(props: {
           </div>
         ) : null}
 
-        {!props.isLoading && props.images.length > 0 ? (
-          <div className="grid auto-rows-[190px] grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-4">
+        {!props.isLoading && (props.images.length > 0 || props.isGenerating) ? (
+          <div className="grid auto-rows-[180px] grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+            {props.isGenerating ? <GeneratingImageCard /> : null}
             {props.images.map((image) => (
               <article
                 key={image.id}
-                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-white/12 hover:shadow-md hover:shadow-black/30"
+                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
               >
                 <button
                   type="button"
@@ -457,10 +397,31 @@ function GalleryCanvas(props: {
   )
 }
 
+function GeneratingImageCard() {
+  return (
+    <article
+      className="relative overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
+      aria-label="Generating image"
+    >
+      <div className="absolute inset-0 framer-grid opacity-10" />
+      <Skeleton className="size-full rounded-none opacity-60" />
+      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/85 via-black/45 to-transparent p-3 pt-10">
+        <div className="flex items-center gap-2 text-xs font-semibold text-white">
+          <Loader2 className="size-3.5 animate-spin text-ring" />
+          Generating image
+        </div>
+        <div className="mt-1 h-2 w-28 overflow-hidden rounded-full bg-white/15">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-ring/80" />
+        </div>
+      </div>
+    </article>
+  )
+}
+
 function GallerySkeleton() {
   return (
     <div
-      className="grid auto-rows-[190px] grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-4"
+      className="grid auto-rows-[180px] grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
       aria-label="Loading gallery"
     >
       {["first", "second", "third", "fourth", "fifth", "sixth"].map((key) => (

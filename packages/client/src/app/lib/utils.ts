@@ -60,17 +60,13 @@ export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong"
 }
 
-export function delay(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
-}
-
 export function routeForScreen(screen: Screen, topicId?: string | null) {
   if (screen === "settings") {
     return "/settings"
   }
 
-  if (screen === "gallery") {
-    return "/gallery"
+  if (screen === "gallery" || screen === "starred") {
+    return "/starred"
   }
 
   if (screen === "topic-editor") {

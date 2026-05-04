@@ -3,6 +3,7 @@ import type {
   CreateTopicRequest,
   EnhancePromptRequest,
   EnhancePromptResponse,
+  GenerationJobListResponse,
   GenerationJobResponse,
   ImageListResponse,
   ImageResponse,
@@ -100,6 +101,9 @@ export function createFramebookApi(
         `/api/topics/${encodeURIComponent(topicId)}/images${query}`
       )
     },
+    async listStarredImages() {
+      return request<ImageListResponse>("/api/images")
+    },
     async enhancePrompt(topicId: string, input: EnhancePromptRequest) {
       return request<EnhancePromptResponse>(
         `/api/topics/${encodeURIComponent(topicId)}/prompt/enhance`,
@@ -116,6 +120,15 @@ export function createFramebookApi(
           method: "POST",
           body: JSON.stringify(input),
         }
+      )
+    },
+    async listGenerationJobs(
+      topicId: string,
+      listOptions: { activeOnly?: boolean } = {}
+    ) {
+      const query = listOptions.activeOnly ? "?activeOnly=true" : ""
+      return request<GenerationJobListResponse>(
+        `/api/topics/${encodeURIComponent(topicId)}/generation-jobs${query}`
       )
     },
     async getGenerationJob(jobId: string) {
