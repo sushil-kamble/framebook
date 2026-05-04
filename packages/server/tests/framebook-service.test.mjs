@@ -489,11 +489,13 @@ describe("framebook service", () => {
 
   it("persists generated titles on generation jobs and image records", async () => {
     const generatedTitle = "Misty Tea Stall"
+    let generateTitleCalled = false
     const titledService = createFramebookService({
       store: createFramebookStore({ dataDir }),
       codexClient: {
         ...createFakeCodexClient(),
         async generateTitle() {
+          generateTitleCalled = true
           return generatedTitle
         },
       },
@@ -505,11 +507,13 @@ describe("framebook service", () => {
       aspectRatio: "4:3",
     })
 
-    expect(job.title).toBe(generatedTitle)
+    expect(job.title).toBe("Morning tea stall in misty hills")
+    expect(generateTitleCalled).toBe(false)
 
-    await titledService.runGenerationJob(job.id)
+    const finishedJob = await titledService.runGenerationJob(job.id)
     const images = await titledService.listImages(topic.id)
 
+    expect(finishedJob.title).toBe(generatedTitle)
     expect(images[0]).toMatchObject({
       generationJobId: job.id,
       title: generatedTitle,
@@ -538,6 +542,9 @@ describe("framebook service", () => {
 
     expect(job.title).toBe("Hill Station Market")
     expect(generateTitleCalled).toBe(false)
+
+    await titledService.runGenerationJob(job.id)
+    expect(generateTitleCalled).toBe(false)
   })
 
   it("uses a clear prompt title prefix before asking Codex for one", async () => {
@@ -562,6 +569,9 @@ describe("framebook service", () => {
 
     expect(job.title).toBe("Misty Hills Tea Stall")
     expect(generateTitleCalled).toBe(false)
+
+    await titledService.runGenerationJob(job.id)
+    expect(generateTitleCalled).toBe(false)
   })
 
   it("falls back to a prompt title when generated title creation fails", async () => {
@@ -584,12 +594,14 @@ describe("framebook service", () => {
       })
 
       expect(job.title).toBe("A quiet mountain station platform")
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("title generation failed")
-      )
+      expect(warn).not.toHaveBeenCalled()
 
       const finishedJob = await resilientService.runGenerationJob(job.id)
       expect(finishedJob.status).toBe("succeeded")
+      expect(finishedJob.title).toBe("A quiet mountain station platform")
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("title generation failed")
+      )
     } finally {
       warn.mockRestore()
     }
@@ -725,7 +737,7 @@ describe("framebook service", () => {
       ).toEqual([
         { model: "gpt-5.4-mini", effort: "low", serviceTier: "fast" },
         { model: "gpt-5.4-mini", effort: "medium", serviceTier: undefined },
-        { model: "gpt-5.5", effort: "medium", serviceTier: undefined },
+        { model: "gpt-5.5", effort: "medium", serviceTier: "fast" },
       ])
     } finally {
       await client.close()
@@ -919,6 +931,245 @@ describe("framebook service", () => {
     }
   })
 
+  it("reuses one warm codex app-server thread for sequential image generation", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmImageSessionFactory()
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        client.generateImage({
+          prompt: "First tea stall prompt",
+          rawPrompt: "First tea stall",
+          aspectRatio: "16:9",
+          resolutionPreset: "2k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "first.png",
+        })
+      ).resolves.toMatchObject({ fileName: "first.png", mimeType: "image/png" })
+      await expect(
+        client.generateImage({
+          prompt: "Second tea stall prompt",
+          rawPrompt: "Second tea stall",
+          aspectRatio: "4:3",
+          resolutionPreset: "1k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "second.png",
+        })
+      ).resolves.toMatchObject({
+        fileName: "second.png",
+        mimeType: "image/png",
+      })
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].startCalls).toBe(1)
+      expect(sessions[0].initializeCalls).toBe(1)
+      expect(sessions[0].threadStartCalls).toHaveLength(1)
+      expect(sessions[0].turnInputs).toHaveLength(2)
+      expect(sessions[0].rollbackCalls).toEqual([
+        { numTurns: 1 },
+        { numTurns: 1 },
+      ])
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("serializes concurrent image generation calls through the warm thread", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmImageSessionFactory({
+      turnDelayMs: 20,
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        Promise.all([
+          client.generateImage({
+            prompt: "First tea stall prompt",
+            rawPrompt: "First tea stall",
+            aspectRatio: "16:9",
+            resolutionPreset: "2k",
+            topic,
+            outputDir: path.join(dataDir, "images"),
+            fileName: "first.png",
+          }),
+          client.generateImage({
+            prompt: "Second tea stall prompt",
+            rawPrompt: "Second tea stall",
+            aspectRatio: "4:3",
+            resolutionPreset: "1k",
+            topic,
+            outputDir: path.join(dataDir, "images"),
+            fileName: "second.png",
+          }),
+        ])
+      ).resolves.toEqual([
+        expect.objectContaining({ fileName: "first.png" }),
+        expect.objectContaining({ fileName: "second.png" }),
+      ])
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].maxActiveTurns).toBe(1)
+      expect(sessions[0].turnInputs).toHaveLength(2)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("discards a failed warm image session and recreates it on the next image generation", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmImageSessionFactory({
+      failTurnIndexes: new Set([0]),
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        client.generateImage({
+          prompt: "First tea stall prompt",
+          rawPrompt: "First tea stall",
+          aspectRatio: "16:9",
+          resolutionPreset: "2k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "first.png",
+        })
+      ).rejects.toThrow("image turn 0 failed")
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].stopped).toBe(true)
+
+      await expect(
+        client.generateImage({
+          prompt: "Second tea stall prompt",
+          rawPrompt: "Second tea stall",
+          aspectRatio: "4:3",
+          resolutionPreset: "1k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "second.png",
+        })
+      ).resolves.toMatchObject({ fileName: "second.png" })
+      expect(sessions).toHaveLength(2)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("discards a warm image session when the completed turn does not create a file", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmImageSessionFactory({
+      skipFileIndexes: new Set([0]),
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      imageFileTimeoutMs: 50,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        client.generateImage({
+          prompt: "First tea stall prompt",
+          rawPrompt: "First tea stall",
+          aspectRatio: "16:9",
+          resolutionPreset: "2k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "first.png",
+        })
+      ).rejects.toThrow("did not create image file")
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].stopped).toBe(true)
+
+      await expect(
+        client.generateImage({
+          prompt: "Second tea stall prompt",
+          rawPrompt: "Second tea stall",
+          aspectRatio: "4:3",
+          resolutionPreset: "1k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "second.png",
+        })
+      ).resolves.toMatchObject({ fileName: "second.png" })
+      expect(sessions).toHaveLength(2)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("keeps a successful image result but discards the warm session when image rollback fails", async () => {
+    const topic = await createTopic(service)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const { sessionFactory, sessions } = createWarmImageSessionFactory({
+      failRollbackIndexes: new Set([0]),
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        client.generateImage({
+          prompt: "First tea stall prompt",
+          rawPrompt: "First tea stall",
+          aspectRatio: "16:9",
+          resolutionPreset: "2k",
+          topic,
+          outputDir: path.join(dataDir, "images"),
+          fileName: "first.png",
+        })
+      ).resolves.toMatchObject({ fileName: "first.png" })
+
+      expect(sessions[0].rollbackCalls).toEqual([{ numTurns: 1 }])
+      expect(sessions[0].stopped).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("image generator rollback failed")
+      )
+    } finally {
+      warn.mockRestore()
+      await client.close()
+    }
+  })
+
+  it("closes warm image and enhancer sessions with the codex client", async () => {
+    const sessions = []
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory() {
+        const session = createTestCodexSession()
+        sessions.push(session)
+        return session
+      },
+    })
+
+    await client.prewarmImageGenerator()
+    await client.prewarmEnhancer()
+    await client.close()
+
+    expect(sessions).toHaveLength(2)
+    expect(sessions.every((session) => session.stopped)).toBe(true)
+  })
+
   it("closes the codex client with the Framebook service", async () => {
     const close = vi.fn()
     const cleanupService = createFramebookService({
@@ -932,11 +1183,13 @@ describe("framebook service", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("prewarms the prompt enhancer when the Framebook service is created", async () => {
+  it("prewarms codex prompt and image workers when the Framebook service is created", async () => {
+    const prewarmImageGenerator = vi.fn().mockResolvedValue(undefined)
     const prewarmEnhancer = vi.fn().mockResolvedValue(undefined)
     const startupService = createFramebookService({
       store: createFramebookStore({ dataDir: path.join(dataDir, "startup") }),
       codexClient: {
+        prewarmImageGenerator,
         prewarmEnhancer,
       },
       autoRunJobs: false,
@@ -945,6 +1198,7 @@ describe("framebook service", () => {
     await Promise.resolve()
     await startupService.close()
 
+    expect(prewarmImageGenerator).toHaveBeenCalledOnce()
     expect(prewarmEnhancer).toHaveBeenCalledOnce()
   })
 
@@ -991,19 +1245,25 @@ describe("framebook service", () => {
 
 function createTestCodexSession() {
   return {
+    stopped: false,
     start() {},
     async initialize() {},
     async startThread() {
       return "test-thread"
     },
-    async runTurnOnCurrentThread() {
+    async runTurnOnCurrentThread({ userText }) {
+      const outputPath = imageOutputPathFromPrompt(userText)
+
+      if (outputPath) {
+        await mkdir(path.dirname(outputPath), { recursive: true })
+        await writeFile(outputPath, "png")
+      }
+
       return { responseText: "Enhanced tea stall prompt" }
     },
     async rollbackLastTurns() {},
     async runTurn({ userText }) {
-      const outputPath = userText.match(
-        /Save the generated PNG image exactly at this absolute path:\n(.+?)\n-/u
-      )?.[1]
+      const outputPath = imageOutputPathFromPrompt(userText)
 
       if (outputPath) {
         await mkdir(path.dirname(outputPath), { recursive: true })
@@ -1016,8 +1276,99 @@ function createTestCodexSession() {
           : "Enhanced tea stall prompt",
       }
     },
-    stop() {},
+    stop() {
+      this.stopped = true
+    },
   }
+}
+
+function createWarmImageSessionFactory({
+  failTurnIndexes = new Set(),
+  failRollbackIndexes = new Set(),
+  skipFileIndexes = new Set(),
+  turnDelayMs = 0,
+} = {}) {
+  const sessions = []
+  let nextSessionId = 1
+  let nextTurnIndex = 0
+  let nextRollbackIndex = 0
+
+  return {
+    sessions,
+    sessionFactory(options) {
+      const session = {
+        id: nextSessionId,
+        options,
+        activeTurns: 0,
+        initializeCalls: 0,
+        maxActiveTurns: 0,
+        rollbackCalls: [],
+        startCalls: 0,
+        stopped: false,
+        threadStartCalls: [],
+        turnInputs: [],
+        start() {
+          this.startCalls += 1
+        },
+        async initialize() {
+          this.initializeCalls += 1
+        },
+        async startThread(input) {
+          this.threadStartCalls.push(input)
+          return `thread-${this.id}`
+        },
+        async runTurnOnCurrentThread({ userText }) {
+          const turnIndex = nextTurnIndex
+          nextTurnIndex += 1
+          this.turnInputs.push(userText)
+          this.activeTurns += 1
+          this.maxActiveTurns = Math.max(this.maxActiveTurns, this.activeTurns)
+
+          try {
+            if (turnDelayMs > 0) {
+              await sleep(turnDelayMs)
+            }
+
+            if (failTurnIndexes.has(turnIndex)) {
+              throw new Error(`image turn ${turnIndex} failed`)
+            }
+
+            const outputPath = imageOutputPathFromPrompt(userText)
+            if (outputPath && !skipFileIndexes.has(turnIndex)) {
+              await mkdir(path.dirname(outputPath), { recursive: true })
+              await writeFile(outputPath, "png")
+            }
+
+            return { responseText: outputPath || `image turn ${turnIndex}` }
+          } finally {
+            this.activeTurns -= 1
+          }
+        },
+        async rollbackLastTurns(input) {
+          const rollbackIndex = nextRollbackIndex
+          nextRollbackIndex += 1
+          this.rollbackCalls.push(input)
+
+          if (failRollbackIndexes.has(rollbackIndex)) {
+            throw new Error(`rollback ${rollbackIndex} failed`)
+          }
+        },
+        stop() {
+          this.stopped = true
+        },
+      }
+
+      nextSessionId += 1
+      sessions.push(session)
+      return session
+    },
+  }
+}
+
+function imageOutputPathFromPrompt(userText) {
+  return userText.match(
+    /Save the generated PNG image exactly at this absolute path:\n(.+?)\n-/u
+  )?.[1]
 }
 
 function createWarmEnhancerSessionFactory({

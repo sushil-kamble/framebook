@@ -89,6 +89,7 @@ export function FramebookApp({
     () => currentRouteScreen === "image-detail" && Boolean(currentRouteImageId)
   )
   const [isEnhancing, setIsEnhancing] = useState(false)
+  const [isCreatingGeneration, setIsCreatingGeneration] = useState(false)
   const [job, setJob] = useState<GenerationJob | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewImageId, setPreviewImageId] = useState<string | null>(null)
@@ -559,6 +560,7 @@ export function FramebookApp({
     }
 
     setError(null)
+    setIsCreatingGeneration(true)
     toast("Your image is being generated", {
       id: generationToastId,
     })
@@ -581,6 +583,8 @@ export function FramebookApp({
       toast.dismiss(generationToastId)
       toast.error("Image generation failed")
       setError(errorMessage(requestError))
+    } finally {
+      setIsCreatingGeneration(false)
     }
   }
 
@@ -751,6 +755,7 @@ export function FramebookApp({
                 favoriteOnly={favoriteOnly}
                 job={job}
                 isEnhancing={isEnhancing}
+                isCreatingGeneration={isCreatingGeneration}
                 isLoadingImages={isLoadingImages}
                 onBack={() => navigateTo("topics")}
                 onEditTopic={() => startEditTopic(activeTopic)}

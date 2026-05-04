@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -97,6 +98,38 @@ describe("toast lifecycle", () => {
     expect(mocks.toast.dismiss.mock.invocationCallOrder.at(-1)).toBeLessThan(
       mocks.toast.success.mock.invocationCallOrder.at(-1) ?? 0
     )
+  })
+
+  it("shows generation loading UI before the create generation request resolves", async () => {
+    let resolveGeneration: (value: { job: GenerationJob }) => void = () => {}
+    mocks.framebookApi.createGeneration.mockReturnValue(
+      new Promise((resolve) => {
+        resolveGeneration = resolve
+      })
+    )
+    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
+
+    fireEvent.change(
+      await screen.findByPlaceholderText(
+        "Describe the image you want to create..."
+      ),
+      { target: { value: "A mountain railway poster" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Generating image")).toBeTruthy()
+      expect(
+        screen
+          .getByRole("button", { name: "Generate" })
+          .hasAttribute("disabled")
+      ).toBe(true)
+    })
+
+    await act(() => {
+      resolveGeneration({ job: queuedGenerationJob })
+      return Promise.resolve()
+    })
   })
 
   it("dismisses the prompt enhancement loading toast before showing success", async () => {

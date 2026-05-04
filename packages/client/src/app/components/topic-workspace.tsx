@@ -47,6 +47,7 @@ export function TopicWorkspace(props: {
   favoriteOnly: boolean
   job: GenerationJob | null
   isEnhancing: boolean
+  isCreatingGeneration: boolean
   isLoadingImages: boolean
   onBack: () => void
   onEditTopic: () => void
@@ -65,7 +66,9 @@ export function TopicWorkspace(props: {
 }) {
   const canGenerate = Boolean(props.promptValue.trim())
   const isGenerating =
-    props.job?.status === "queued" || props.job?.status === "running"
+    props.isCreatingGeneration ||
+    props.job?.status === "queued" ||
+    props.job?.status === "running"
 
   return (
     <div className="flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2">

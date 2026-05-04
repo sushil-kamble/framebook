@@ -23,6 +23,7 @@ export function createFramebookService({
   autoRunJobs = true,
 } = {}) {
   const jobRunners = new Map()
+  prewarmImageGenerator(codexClient)
   prewarmPromptEnhancer(codexClient)
 
   async function listTopics({ includeArchived = false } = {}) {
@@ -337,10 +338,8 @@ export function createFramebookService({
     const enhancedPrompt =
       optionalText(input.enhancedPrompt) ||
       (await resolveEnhancedPrompt({ topic, rawPrompt }))
-    const title = await resolveImageTitle({
-      topic,
+    const title = resolveInitialImageTitle({
       rawPrompt,
-      enhancedPrompt,
       inputTitle: input.title,
     })
     const finalPrompt = buildFinalPrompt({
@@ -439,6 +438,14 @@ export function createFramebookService({
     const topic = await ensureTopic(job.topicId)
 
     try {
+      const title = await resolveGeneratedImageTitle({ topic, job })
+      if (title !== job.title) {
+        job = await updateJob(job.id, {
+          title,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+
       const outputDir = store.getTopicAssetDir(topic.id)
       const fileName = `${job.id}.png`
       const generated = await codexClient.generateImage({
@@ -616,6 +623,38 @@ export function createFramebookService({
       : enhancePrompt({ topic, rawPrompt })
   }
 
+  function resolveInitialImageTitle({ rawPrompt, inputTitle }) {
+    return (
+      normalizeImageTitle(inputTitle) ||
+      extractExplicitTitleFromPrompt(rawPrompt) ||
+      titleFromPrompt(rawPrompt)
+    )
+  }
+
+  async function resolveGeneratedImageTitle({ topic, job }) {
+    if (!shouldGenerateImageTitle(job)) {
+      return job.title
+    }
+
+    return resolveImageTitle({
+      topic,
+      rawPrompt: job.rawPrompt,
+      enhancedPrompt: job.enhancedPrompt,
+      inputTitle: null,
+    })
+  }
+
+  function shouldGenerateImageTitle(job) {
+    const title = normalizeImageTitle(job.title)
+    const explicitTitle = extractExplicitTitleFromPrompt(job.rawPrompt)
+
+    if (explicitTitle && title === explicitTitle) {
+      return false
+    }
+
+    return title === titleFromPrompt(job.rawPrompt)
+  }
+
   async function resolveImageTitle({
     topic,
     rawPrompt,
@@ -695,6 +734,22 @@ function prewarmPromptEnhancer(codexClient) {
     .catch((error) => {
       console.warn(
         `[framebook] prompt enhancer prewarm failed; the next Enhance request will retry: ${errorMessage(
+          error
+        )}`
+      )
+    })
+}
+
+function prewarmImageGenerator(codexClient) {
+  if (typeof codexClient.prewarmImageGenerator !== "function") {
+    return
+  }
+
+  void Promise.resolve()
+    .then(() => codexClient.prewarmImageGenerator())
+    .catch((error) => {
+      console.warn(
+        `[framebook] image generator prewarm failed; the next Generate request will retry: ${errorMessage(
           error
         )}`
       )

@@ -60,6 +60,7 @@ describe("optimized image grids", () => {
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
+        isCreatingGeneration={false}
         isLoadingImages={false}
         onBack={vi.fn()}
         onEditTopic={vi.fn()}
@@ -210,6 +211,7 @@ function PreviewToggleHarness() {
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
+        isCreatingGeneration={false}
         isLoadingImages={false}
         onBack={vi.fn()}
         onEditTopic={vi.fn()}

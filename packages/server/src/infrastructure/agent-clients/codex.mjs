@@ -9,8 +9,10 @@ const defaultEnhancerModel = "gpt-5.4-mini"
 const defaultTitleModel = "gpt-5.4-mini"
 const defaultEffort = "medium"
 const defaultEnhancerEffort = "low"
+const imageServiceTier = "fast"
 const enhancerServiceTier = "fast"
 const defaultTimeoutMs = 10 * 60 * 1000
+const defaultImageFileTimeoutMs = 10_000
 const pngMimeType = "image/png"
 const onePixelPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -62,6 +64,7 @@ export class CodexAppServerImageClient {
     this.env = options.env || process.env
     this.imageModel = options.imageModel || options.model || defaultImageModel
     this.imageEffort = options.imageEffort || options.effort || defaultEffort
+    this.imageServiceTier = options.imageServiceTier || imageServiceTier
     this.enhancerModel = options.enhancerModel || defaultEnhancerModel
     this.enhancerEffort = options.enhancerEffort || defaultEnhancerEffort
     this.enhancerServiceTier =
@@ -69,9 +72,14 @@ export class CodexAppServerImageClient {
     this.titleModel = options.titleModel || defaultTitleModel
     this.titleEffort = options.titleEffort || defaultEffort
     this.timeoutMs = options.timeoutMs || defaultTimeoutMs
+    this.imageFileTimeoutMs =
+      options.imageFileTimeoutMs || defaultImageFileTimeoutMs
     this.sessionFactory =
       options.sessionFactory ||
       ((sessionOptions) => new CodexAppServerSession(sessionOptions))
+    this.imageSession = null
+    this.imageSessionPromise = null
+    this.imageQueue = Promise.resolve()
     this.enhancerSession = null
     this.enhancerSessionPromise = null
     this.enhancerQueue = Promise.resolve()
@@ -90,17 +98,69 @@ export class CodexAppServerImageClient {
     await fs.mkdir(outputDir, { recursive: true })
     const targetFileName = ensurePngFileName(fileName || `${Date.now()}.png`)
     const outputPath = path.join(outputDir, targetFileName)
-    const appServer = this.createSession({
-      command: this.command,
-      cwd: this.cwd,
-      env: this.env,
-      model: this.imageModel,
-      effort: this.imageEffort,
-    })
+    const generation = this.imageQueue.then(
+      () =>
+        this.runImageGenerationTurn({
+          prompt,
+          rawPrompt,
+          aspectRatio,
+          resolutionPreset,
+          topic,
+          outputPath,
+          targetFileName,
+        }),
+      () =>
+        this.runImageGenerationTurn({
+          prompt,
+          rawPrompt,
+          aspectRatio,
+          resolutionPreset,
+          topic,
+          outputPath,
+          targetFileName,
+        })
+    )
+    this.imageQueue = generation.catch(() => {})
 
+    return generation
+  }
+
+  async prewarmImageGenerator() {
+    if (this.closed) {
+      throw new Error("Codex App Server image generator is closed")
+    }
+
+    if (this.imageSession) {
+      return this.imageSession
+    }
+
+    if (!this.imageSessionPromise) {
+      this.imageSessionPromise = this.createImageGenerationSession()
+        .then((session) => {
+          this.imageSession = session
+          return session
+        })
+        .finally(() => {
+          this.imageSessionPromise = null
+        })
+    }
+
+    return this.imageSessionPromise
+  }
+
+  async runImageGenerationTurn({
+    prompt,
+    rawPrompt,
+    aspectRatio,
+    resolutionPreset,
+    topic,
+    outputPath,
+    targetFileName,
+  }) {
+    let appServer
     try {
-      await appServer.runTurn({
-        developerInstructions: framebookImageDeveloperInstructions(),
+      appServer = await this.prewarmImageGenerator()
+      await appServer.runTurnOnCurrentThread({
         userText: buildImageGenerationPrompt({
           prompt,
           rawPrompt,
@@ -111,15 +171,28 @@ export class CodexAppServerImageClient {
         }),
         timeoutMs: this.timeoutMs,
       })
-      await waitForFile(outputPath, 10_000)
-
-      return {
+      await waitForFile(outputPath, this.imageFileTimeoutMs)
+      const generatedImage = {
         filePath: outputPath,
         fileName: targetFileName,
         mimeType: pngMimeType,
       }
-    } finally {
-      appServer.stop()
+
+      try {
+        await appServer.rollbackLastTurns({ numTurns: 1 })
+      } catch (error) {
+        this.discardImageSession(appServer)
+        console.warn(
+          `[framebook] image generator rollback failed after successful turn; next request will create a fresh thread: ${errorMessage(
+            error
+          )}`
+        )
+      }
+
+      return generatedImage
+    } catch (error) {
+      this.discardImageSession(appServer)
+      throw error
     }
   }
 
@@ -187,6 +260,34 @@ export class CodexAppServerImageClient {
     return this.sessionFactory(options)
   }
 
+  async createImageGenerationSession() {
+    const appServer = this.createSession({
+      command: this.command,
+      cwd: this.cwd,
+      env: this.env,
+      model: this.imageModel,
+      effort: this.imageEffort,
+      serviceTier: this.imageServiceTier,
+    })
+
+    try {
+      appServer.start()
+      await appServer.initialize()
+      await appServer.startThread({
+        developerInstructions: framebookImageDeveloperInstructions(),
+      })
+
+      if (this.closed) {
+        throw new Error("Codex App Server image generator is closed")
+      }
+
+      return appServer
+    } catch (error) {
+      appServer.stop()
+      throw error
+    }
+  }
+
   async runEnhancerTurn({ topic, rawPrompt }) {
     let appServer
     try {
@@ -250,6 +351,14 @@ export class CodexAppServerImageClient {
     }
   }
 
+  discardImageSession(session = this.imageSession) {
+    if (session && session === this.imageSession) {
+      this.imageSession = null
+    }
+
+    session?.stop()
+  }
+
   discardEnhancerSession(session = this.enhancerSession) {
     if (session && session === this.enhancerSession) {
       this.enhancerSession = null
@@ -260,20 +369,30 @@ export class CodexAppServerImageClient {
 
   async close() {
     this.closed = true
+    this.discardImageSession()
     this.discardEnhancerSession()
 
-    if (this.enhancerSessionPromise) {
-      try {
-        const session = await this.enhancerSessionPromise
-        session?.stop()
-      } catch {
-        // Prewarm failures are surfaced to callers that awaited the prewarm.
-      }
-    }
+    await Promise.all([
+      this.stopSessionWhenReady(this.imageSessionPromise),
+      this.stopSessionWhenReady(this.enhancerSessionPromise),
+    ])
   }
 
   async dispose() {
     await this.close()
+  }
+
+  async stopSessionWhenReady(sessionPromise) {
+    if (!sessionPromise) {
+      return
+    }
+
+    try {
+      const session = await sessionPromise
+      session?.stop()
+    } catch {
+      // Prewarm failures are surfaced to callers that awaited the prewarm.
+    }
   }
 }
 
