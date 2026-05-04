@@ -1,6 +1,12 @@
 import { ImageIcon, Info, Star } from "lucide-react"
 import { cn } from "@shared/lib/utils"
-import { formatDate, imageFileUrl } from "../lib/utils"
+import {
+  formatDate,
+  imageFileUrl,
+  imageGridSizes,
+  imageSrcSet,
+  imageVariantUrl,
+} from "../lib/utils"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
 import { Skeleton } from "@/shared/ui/skeleton"
@@ -47,66 +53,85 @@ export function StarredScreen({
       ) : null}
 
       {!isLoading && images.length > 0 ? (
-        <div className="grid auto-rows-[210px] grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-          {images.map((image) => (
-            <article
-              key={image.id}
-              className="group relative overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
-            >
-              <button
-                type="button"
-                className="block size-full text-left"
-                onClick={() => onPreviewImage(image)}
-                aria-label={`Preview ${image.title}`}
+        <div className="grid grid-cols-2 gap-3">
+          {images.map((image, index) => {
+            const srcSet = imageSrcSet(image)
+
+            return (
+              <article
+                key={image.id}
+                className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
               >
-                <img
-                  src={imageFileUrl(image.id)}
-                  alt={image.title}
-                  className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
-                />
-              </button>
-
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
-                <div className="line-clamp-1 text-xs font-semibold text-white">
-                  {image.title}
-                </div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
-                  <span className="line-clamp-1">
-                    {image.topicSnapshot.name}
-                  </span>
-                  <span>·</span>
-                  <span>{formatDate(image.createdAt)}</span>
-                </div>
-              </div>
-
-              <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                <Button
+                <button
                   type="button"
-                  size="icon-sm"
-                  variant="secondary"
-                  onClick={() => onViewImageDetails(image)}
-                  aria-label={`View details for ${image.title}`}
-                  title="View details"
+                  className="block size-full text-left"
+                  onClick={() => onPreviewImage(image)}
+                  aria-label={`Preview ${image.title}`}
                 >
-                  <Info />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="secondary"
-                  onClick={() => onToggleFavorite(image)}
-                  aria-label={
-                    image.favorite ? "Remove from starred" : "Star image"
-                  }
-                  title={image.favorite ? "Remove from starred" : "Star image"}
-                >
-                  <Star
-                    className={cn(image.favorite ? "fill-ring text-ring" : "")}
+                  <img
+                    src={
+                      srcSet
+                        ? imageVariantUrl(image.id, 480)
+                        : imageFileUrl(image.id)
+                    }
+                    srcSet={srcSet}
+                    sizes={imageGridSizes("starred")}
+                    alt={image.title}
+                    width={image.width}
+                    height={image.height}
+                    loading="lazy"
+                    decoding="async"
+                    fetchPriority={index < 2 ? "high" : undefined}
+                    className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
                   />
-                </Button>
-              </div>
-            </article>
-          ))}
+                </button>
+
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
+                  <div className="line-clamp-1 text-xs font-semibold text-white">
+                    {image.title}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
+                    <span className="line-clamp-1">
+                      {image.topicSnapshot.name}
+                    </span>
+                    <span>·</span>
+                    <span>{formatDate(image.createdAt)}</span>
+                  </div>
+                </div>
+
+                <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="secondary"
+                    onClick={() => onViewImageDetails(image)}
+                    aria-label={`View details for ${image.title}`}
+                    title="View details"
+                  >
+                    <Info />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="secondary"
+                    onClick={() => onToggleFavorite(image)}
+                    aria-label={
+                      image.favorite ? "Remove from starred" : "Star image"
+                    }
+                    title={
+                      image.favorite ? "Remove from starred" : "Star image"
+                    }
+                  >
+                    <Star
+                      className={cn(
+                        image.favorite ? "fill-ring text-ring" : ""
+                      )}
+                    />
+                  </Button>
+                </div>
+              </article>
+            )
+          })}
         </div>
       ) : null}
     </div>
@@ -115,14 +140,11 @@ export function StarredScreen({
 
 function StarredGridSkeleton() {
   return (
-    <div
-      className="grid auto-rows-[210px] grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4"
-      aria-label="Loading starred images"
-    >
-      {["first", "second", "third", "fourth", "fifth", "sixth"].map((key) => (
+    <div className="grid grid-cols-2 gap-3" aria-label="Loading starred images">
+      {["first", "second"].map((key) => (
         <div
           key={key}
-          className="overflow-hidden rounded-2xl border border-border/50 bg-muted"
+          className="aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted"
         >
           <Skeleton className="size-full rounded-none" />
         </div>

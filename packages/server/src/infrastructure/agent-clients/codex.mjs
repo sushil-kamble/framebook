@@ -4,7 +4,9 @@ import { promises as fs } from "node:fs"
 import path from "node:path"
 import readline from "node:readline"
 
-const defaultModel = "gpt-5.5"
+const defaultImageModel = "gpt-5.5"
+const defaultEnhancerModel = "gpt-5.4-mini"
+const defaultTitleModel = "gpt-5.4-mini"
 const defaultEffort = "medium"
 const defaultTimeoutMs = 10 * 60 * 1000
 const pngMimeType = "image/png"
@@ -18,8 +20,12 @@ export function createCodexClient({ env = process.env } = {}) {
     command: env.FRAMEBOOK_CODEX_BIN || "codex",
     cwd: env.FRAMEBOOK_CODEX_CWD || process.cwd(),
     env,
-    model: env.FRAMEBOOK_CODEX_MODEL || defaultModel,
-    effort: env.FRAMEBOOK_CODEX_EFFORT || defaultEffort,
+    imageModel: env.FRAMEBOOK_CODEX_IMAGE_MODEL || defaultImageModel,
+    imageEffort: env.FRAMEBOOK_CODEX_IMAGE_EFFORT || defaultEffort,
+    enhancerModel: env.FRAMEBOOK_CODEX_ENHANCER_MODEL || defaultEnhancerModel,
+    enhancerEffort: env.FRAMEBOOK_CODEX_ENHANCER_EFFORT || defaultEffort,
+    titleModel: env.FRAMEBOOK_CODEX_TITLE_MODEL || defaultTitleModel,
+    titleEffort: env.FRAMEBOOK_CODEX_TITLE_EFFORT || defaultEffort,
     timeoutMs: readPositiveInteger(
       env.FRAMEBOOK_CODEX_TIMEOUT_MS,
       defaultTimeoutMs
@@ -51,9 +57,16 @@ export class CodexAppServerImageClient {
     this.command = options.command || "codex"
     this.cwd = options.cwd || process.cwd()
     this.env = options.env || process.env
-    this.model = options.model || defaultModel
-    this.effort = options.effort || defaultEffort
+    this.imageModel = options.imageModel || options.model || defaultImageModel
+    this.imageEffort = options.imageEffort || options.effort || defaultEffort
+    this.enhancerModel = options.enhancerModel || defaultEnhancerModel
+    this.enhancerEffort = options.enhancerEffort || defaultEffort
+    this.titleModel = options.titleModel || defaultTitleModel
+    this.titleEffort = options.titleEffort || defaultEffort
     this.timeoutMs = options.timeoutMs || defaultTimeoutMs
+    this.sessionFactory =
+      options.sessionFactory ||
+      ((sessionOptions) => new CodexAppServerSession(sessionOptions))
   }
 
   async generateImage({
@@ -68,12 +81,12 @@ export class CodexAppServerImageClient {
     await fs.mkdir(outputDir, { recursive: true })
     const targetFileName = ensurePngFileName(fileName || `${Date.now()}.png`)
     const outputPath = path.join(outputDir, targetFileName)
-    const appServer = new CodexAppServerSession({
+    const appServer = this.createSession({
       command: this.command,
       cwd: this.cwd,
       env: this.env,
-      model: this.model,
-      effort: this.effort,
+      model: this.imageModel,
+      effort: this.imageEffort,
     })
 
     try {
@@ -101,13 +114,13 @@ export class CodexAppServerImageClient {
     }
   }
 
-  async enhancePrompt({ topic, rawPrompt, aspectRatio }) {
-    const appServer = new CodexAppServerSession({
+  async enhancePrompt({ topic, rawPrompt }) {
+    const appServer = this.createSession({
       command: this.command,
       cwd: this.cwd,
       env: this.env,
-      model: this.model,
-      effort: this.effort,
+      model: this.enhancerModel,
+      effort: this.enhancerEffort,
     })
 
     try {
@@ -116,7 +129,6 @@ export class CodexAppServerImageClient {
         userText: buildPromptEnhancementPrompt({
           topic,
           rawPrompt,
-          aspectRatio,
         }),
         timeoutMs: Math.min(this.timeoutMs, 120_000),
       })
@@ -130,6 +142,37 @@ export class CodexAppServerImageClient {
     } finally {
       appServer.stop()
     }
+  }
+
+  async generateTitle({ topic, rawPrompt, enhancedPrompt }) {
+    const appServer = this.createSession({
+      command: this.command,
+      cwd: this.cwd,
+      env: this.env,
+      model: this.titleModel,
+      effort: this.titleEffort,
+    })
+
+    try {
+      const result = await appServer.runTurn({
+        developerInstructions: framebookTitleDeveloperInstructions(),
+        userText: buildImageTitlePrompt({ topic, rawPrompt, enhancedPrompt }),
+        timeoutMs: Math.min(this.timeoutMs, 60_000),
+      })
+      const title = cleanCodexPromptResponse(result.responseText)
+
+      if (!title) {
+        throw new Error("Codex App Server did not return an image title")
+      }
+
+      return title
+    } finally {
+      appServer.stop()
+    }
+  }
+
+  createSession(options) {
+    return this.sessionFactory(options)
   }
 }
 
@@ -171,7 +214,7 @@ export class CodexAppServerSession extends EventEmitter {
           cleanup()
           reject(
             new Error(
-              `Codex App Server exited before completing the image turn (${code ?? signal})`
+              `Codex App Server exited before completing the turn (${code ?? signal})`
             )
           )
         }
@@ -188,7 +231,7 @@ export class CodexAppServerSession extends EventEmitter {
       }),
       timeoutMs,
       () =>
-        `Codex App Server image generation timed out after ${Math.round(timeoutMs / 1000)}s`
+        `Codex App Server turn timed out after ${Math.round(timeoutMs / 1000)}s`
     )
   }
 
@@ -447,20 +490,16 @@ ${outputPath}
 function formatResolutionPreset(value) {
   switch (value) {
     case "2k":
-      return "High 2K resolution"
+      return "2K output resolution"
     case "4k":
-      return "Ultra 4K resolution"
+      return "4K output resolution"
     case "1k":
     default:
-      return "Standard 1K resolution"
+      return "1K output resolution"
   }
 }
 
-export function buildPromptEnhancementPrompt({
-  topic,
-  rawPrompt,
-  aspectRatio,
-}) {
+export function buildPromptEnhancementPrompt({ topic, rawPrompt }) {
   return `Rewrite the user's image prompt for OpenAI GPT image generation models. Return only the final enhanced prompt, with no markdown, no quotes, no explanation, and no preamble.
 
 Use these GPT image prompting rules:
@@ -470,18 +509,38 @@ Use these GPT image prompting rules:
 - Include photorealistic or professional photography language only when it matches the user's intent.
 - If text should appear in the image, put exact visible text in quotes and specify placement, style, contrast, and size. Otherwise explicitly avoid unintended text.
 - Include constraints such as no watermark, no extra text, no logos or trademarks unless requested.
-- For wide, cinematic, low-light, rain, neon, UI mockup, infographic, diagram, product, or multi-panel requests, add the layout and fidelity details needed for controllable output.
+- For cinematic, low-light, rain, neon, UI mockup, infographic, diagram, product, or multi-panel requests, add the layout details needed for controllable output.
 - Keep it editable and skimmable. Prefer one strong paragraph or short labeled segments, not a bloated essay.
+- Output settings are handled later by Generate. Keep this rewrite limited to the visual intent and creative direction.
 
 Topic context:
 Name: ${topic.name}
 Instruction: ${topic.instruction}
 Base details: ${topic.basePromptDetails || "None"}
 Enhancer mode: ${topic.enhancerMode}
-Aspect ratio: ${aspectRatio || topic.defaultAspectRatio}
 
 User prompt:
 ${rawPrompt}`
+}
+
+export function buildImageTitlePrompt({ topic, rawPrompt, enhancedPrompt }) {
+  return `Create a short display title for a generated Framebook image. Return only the title, with no markdown, no quotes, no explanation, and no preamble.
+
+Rules:
+- Use plain text only.
+- Keep it at or below 60 characters.
+- Summarize the image idea instead of repeating the whole prompt.
+- Do not include output settings, style tags, file names, or camera jargon.
+
+Topic context:
+Name: ${topic.name}
+Instruction: ${topic.instruction}
+
+Raw prompt:
+${rawPrompt}
+
+Enhanced prompt:
+${enhancedPrompt}`
 }
 
 function framebookImageDeveloperInstructions() {
@@ -492,6 +551,10 @@ Use the image creation skill/tool when the user asks for image generation. Save 
 
 function framebookPromptDeveloperInstructions() {
   return `You are Framebook's prompt enhancement worker. Improve image prompts for GPT image generation models. Return only the final prompt text.`
+}
+
+function framebookTitleDeveloperInstructions() {
+  return `You are Framebook's image title worker. Return one short, plain-text image title and nothing else.`
 }
 
 function cleanCodexPromptResponse(value) {

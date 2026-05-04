@@ -14,5 +14,7 @@
     "test": "vitest run --config vitest.config.mjs",
     "typecheck": "node -e \"console.log('No TypeScript sources in @framebook/server yet')\""
   },
-  "dependencies": {}
+  "dependencies": {
+    "sharp": "^0.34.5"
+  }
 }

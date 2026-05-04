@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 export type ThemeMode = "light" | "dark"
 
@@ -46,17 +46,31 @@ export function getInitialThemeMode(): ThemeMode {
 }
 
 export function useThemeMode() {
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode)
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(defaultThemeMode)
 
   useEffect(() => {
-    applyThemeMode(themeMode)
+    let storedThemeMode = defaultThemeMode
 
     try {
-      writeStoredThemeMode(themeMode)
+      storedThemeMode = readStoredThemeMode() ?? defaultThemeMode
+    } catch (storageError) {
+      console.warn("Unable to read saved Framebook theme.", storageError)
+    }
+
+    applyThemeMode(storedThemeMode)
+    setThemeModeState(storedThemeMode)
+  }, [])
+
+  const setThemeMode = useCallback((nextThemeMode: ThemeMode) => {
+    setThemeModeState(nextThemeMode)
+    applyThemeMode(nextThemeMode)
+
+    try {
+      writeStoredThemeMode(nextThemeMode)
     } catch (storageError) {
       console.warn("Unable to save Framebook theme.", storageError)
     }
-  }, [themeMode])
+  }, [])
 
   return { themeMode, setThemeMode }
 }

@@ -3,8 +3,11 @@ import { enhancerModeOptions } from "./constants"
 import type {
   EnhancerMode,
   ImageRecord,
+  ImageVariant,
 } from "@framebook/shared/contracts/framebook"
 import type { Screen } from "./types"
+
+const imageVariantWidthPattern = /-(320|480|768|1024)w\.webp$/u
 
 export function modeLabel(mode: EnhancerMode) {
   return (
@@ -18,7 +21,6 @@ export function formatDate(value: string) {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "UTC",
   })
 }
 
@@ -28,7 +30,6 @@ export function formatViewerTimestamp(value: string) {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "UTC",
   })
 }
 
@@ -46,6 +47,29 @@ export function imageFileUrl(imageId: string) {
   return framebookApiUrl(`/api/images/${encodeURIComponent(imageId)}/file`)
 }
 
+export function imageVariantUrl(imageId: string, width: number) {
+  return framebookApiUrl(
+    `/api/images/${encodeURIComponent(imageId)}/variants/${width}`
+  )
+}
+
+export function imageSrcSet(image: ImageRecord) {
+  const srcSet = image.variants
+    ?.map((variant) => imageSrcSetEntry(image.id, variant))
+    .filter((entry): entry is string => Boolean(entry))
+    .join(", ")
+
+  return srcSet || undefined
+}
+
+export function imageGridSizes(kind: "topic" | "starred") {
+  if (kind === "topic") {
+    return "(min-width: 1024px) 33vw, 33vw"
+  }
+
+  return "(min-width: 768px) 50vw, 50vw"
+}
+
 export function imageDownloadName(image: ImageRecord) {
   const baseName = image.title
     .toLowerCase()
@@ -54,6 +78,26 @@ export function imageDownloadName(image: ImageRecord) {
     .slice(0, 80)
 
   return `${baseName || "framebook-image"}.png`
+}
+
+function imageSrcSetEntry(imageId: string, variant: ImageVariant) {
+  const requestedWidth = imageVariantRequestWidth(variant)
+
+  if (!requestedWidth) {
+    return null
+  }
+
+  return `${imageVariantUrl(imageId, requestedWidth)} ${variant.width}w`
+}
+
+function imageVariantRequestWidth(variant: ImageVariant) {
+  const width = variant.fileName.match(imageVariantWidthPattern)?.[1]
+
+  if (!width) {
+    return null
+  }
+
+  return Number.parseInt(width, 10)
 }
 
 export function errorMessage(error: unknown) {

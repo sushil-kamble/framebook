@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router"
 import { X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import {
   defaultTopicDraft,
   draftFromTopic,
@@ -55,10 +56,12 @@ export function FramebookApp({
   const [topicEditor, setTopicEditor] = useState<{
     mode: "create" | "edit"
     topicId?: string
+    topicName?: string
     draft: TopicDraft
   } | null>(null)
-  const [rawPrompt, setRawPrompt] = useState("")
-  const [enhancedPrompt, setEnhancedPrompt] = useState("")
+  const [userPrompt, setUserPrompt] = useState("")
+  const [generationPrompt, setGenerationPrompt] = useState("")
+  const [promptMode, setPromptMode] = useState<"user" | "generation">("user")
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
   const [selectedResolutionPreset, setSelectedResolutionPreset] =
@@ -66,7 +69,13 @@ export function FramebookApp({
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [isLoadingTopics, setIsLoadingTopics] = useState(true)
   const [isLoadingImages, setIsLoadingImages] = useState(false)
-  const [isLoadingStarredImages, setIsLoadingStarredImages] = useState(false)
+  const [isLoadingStarredImages, setIsLoadingStarredImages] = useState(() =>
+    isStarredImagesScreen(routeScreen)
+  )
+  const [hasLoadedStarredImages, setHasLoadedStarredImages] = useState(false)
+  const [isLoadingImageDetail, setIsLoadingImageDetail] = useState(
+    () => routeScreen === "image-detail" && Boolean(routeImageId)
+  )
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [job, setJob] = useState<GenerationJob | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -88,9 +97,12 @@ export function FramebookApp({
   )
   const activeDetailImage = useMemo(
     () =>
-      images.find((image) => image.id === routeImageId) ?? detailImage ?? null,
+      images.find((image) => image.id === routeImageId) ??
+      (detailImage?.id === routeImageId ? detailImage : null),
     [detailImage, images, routeImageId]
   )
+  const promptValue =
+    promptMode === "generation" ? generationPrompt : userPrompt
   const isLoadingActiveTopic =
     screen === "topic" &&
     Boolean(routeTopicId ?? activeTopicId) &&
@@ -98,6 +110,15 @@ export function FramebookApp({
     !activeTopic
   const activeGenerationJobId =
     job && isActiveGenerationJob(job) ? job.id : null
+  const pageTransitionKey = `${screen}:${activeTopicId ?? ""}:${routeImageId ?? ""}`
+  const isStarredImagesLoading =
+    isLoadingStarredImages ||
+    (isStarredImagesScreen(screen) && !hasLoadedStarredImages)
+  const isLoadingActiveImageDetail =
+    screen === "image-detail" &&
+    Boolean(routeImageId) &&
+    isLoadingImageDetail &&
+    !activeDetailImage
 
   const loadTopics = useCallback(async () => {
     setIsLoadingTopics(true)
@@ -134,6 +155,7 @@ export function FramebookApp({
     } catch (requestError) {
       setError(errorMessage(requestError))
     } finally {
+      setHasLoadedStarredImages(true)
       setIsLoadingStarredImages(false)
     }
   }, [])
@@ -147,10 +169,15 @@ export function FramebookApp({
             ? loadImages(finishedJob.topicId, favoriteOnly)
             : Promise.resolve(),
         ])
+        toast.success("Image generated", { id: "generation" })
         return
       }
 
       if (finishedJob.status === "failed") {
+        toast.error("Generation failed", {
+          id: "generation",
+          description: finishedJob.error ?? "Your prompt is safe to retry.",
+        })
         setError(
           finishedJob.error || "Generation failed, but your prompt is safe."
         )
@@ -194,16 +221,19 @@ export function FramebookApp({
     setTopicEditor({
       mode: "edit",
       topicId: topic.id,
+      topicName: topic.name,
       draft: draftFromTopic(topic),
     })
   }, [routeScreen, routeTopicId, topics])
 
+  const activeTopicDefaultAspectRatio = activeTopic?.defaultAspectRatio
   useEffect(() => {
-    if (activeTopic) {
-      setSelectedAspectRatio(activeTopic.defaultAspectRatio)
-      void loadImages(activeTopic.id, favoriteOnly)
+    if (!activeTopicId || !activeTopicDefaultAspectRatio) {
+      return
     }
-  }, [activeTopic, favoriteOnly, loadImages])
+    setSelectedAspectRatio(activeTopicDefaultAspectRatio)
+    void loadImages(activeTopicId, favoriteOnly)
+  }, [activeTopicId, activeTopicDefaultAspectRatio, favoriteOnly, loadImages])
 
   useEffect(() => {
     if (screen === "starred" || screen === "gallery") {
@@ -307,6 +337,7 @@ export function FramebookApp({
 
   useEffect(() => {
     if (routeScreen !== "image-detail" || !routeImageId) {
+      setIsLoadingImageDetail(false)
       return
     }
 
@@ -314,6 +345,11 @@ export function FramebookApp({
     const imageId = routeImageId
 
     async function loadImageDetail() {
+      setIsLoadingImageDetail(true)
+      setDetailImage((currentImage) =>
+        currentImage?.id === imageId ? currentImage : null
+      )
+
       try {
         const response = await framebookApi.getImage(imageId)
 
@@ -328,6 +364,10 @@ export function FramebookApp({
         if (!cancelled) {
           setError(errorMessage(requestError))
         }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingImageDetail(false)
+        }
       }
     }
 
@@ -338,8 +378,11 @@ export function FramebookApp({
     }
   }, [routeImageId, routeScreen])
 
-  const navigateTo = (nextScreen: Screen, topicId?: string) => {
-    const target = routeForScreen(nextScreen, topicId ?? activeTopicId)
+  const navigateTo = (nextScreen: Screen, topicId?: string | null) => {
+    const target = routeForScreen(
+      nextScreen,
+      topicId === undefined ? activeTopicId : topicId
+    )
     void navigate({ to: target } as Parameters<typeof navigate>[0])
   }
 
@@ -349,7 +392,7 @@ export function FramebookApp({
       screen === "starred" || screen === "gallery" ? "starred" : "topic"
     )
     void navigate({
-      to: `/images/${encodeURIComponent(image.id)}`,
+      to: `/topics/${encodeURIComponent(image.topicId)}/images/${encodeURIComponent(image.id)}`,
     } as Parameters<typeof navigate>[0])
   }
 
@@ -365,13 +408,14 @@ export function FramebookApp({
     setTopicEditor({ mode: "create", draft: defaultTopicDraft })
     setScreen("topic-editor")
     setError(null)
-    navigateTo("topic-editor")
+    navigateTo("topic-editor", null)
   }
 
   const startEditTopic = (topic: TopicSummary) => {
     setTopicEditor({
       mode: "edit",
       topicId: topic.id,
+      topicName: topic.name,
       draft: draftFromTopic(topic),
     })
     setScreen("topic-editor")
@@ -381,14 +425,17 @@ export function FramebookApp({
 
   const submitTopic = async (draft: TopicDraft) => {
     const normalized = normalizeTopicDraft(draft)
-    const response =
-      topicEditor?.mode === "edit" && topicEditor.topicId
-        ? await framebookApi.updateTopic(topicEditor.topicId, normalized)
-        : await framebookApi.createTopic(normalized)
+    const isEdit = topicEditor?.mode === "edit" && topicEditor.topicId
+    const response = isEdit
+      ? await framebookApi.updateTopic(topicEditor.topicId!, normalized)
+      : await framebookApi.createTopic(normalized)
 
     await loadTopics()
     setTopicEditor(null)
     openTopic(response.topic)
+    toast.success(isEdit ? "Topic updated" : "Topic created", {
+      description: response.topic.name,
+    })
   }
 
   const archiveActiveTopic = async () => {
@@ -396,12 +443,14 @@ export function FramebookApp({
       return
     }
 
+    const name = activeTopic.name
     await framebookApi.archiveTopic(activeTopic.id)
     setActiveTopicId(null)
     setImages([])
     setScreen("topics")
     navigateTo("topics")
     await loadTopics()
+    toast("Topic archived", { description: name })
   }
 
   const unarchiveTopic = async (topic: TopicSummary) => {
@@ -415,6 +464,33 @@ export function FramebookApp({
           : [response.topic, ...current]
       )
       await loadTopics()
+      toast.success("Topic restored", { description: response.topic.name })
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+      throw requestError
+    }
+  }
+
+  const unarchiveImage = async (image: ImageRecord) => {
+    try {
+      const response = await framebookApi.updateImage(image.id, {
+        archived: false,
+      })
+      setImages((current) =>
+        current.some((candidate) => candidate.id === response.image.id)
+          ? current.map((candidate) =>
+              candidate.id === response.image.id ? response.image : candidate
+            )
+          : current
+      )
+      setStarredImages((current) =>
+        updateStarredImages(current, response.image)
+      )
+      setDetailImage((current) =>
+        current?.id === response.image.id ? response.image : current
+      )
+      await loadTopics()
+      toast.success("Image restored", { description: response.image.title })
     } catch (requestError) {
       setError(errorMessage(requestError))
       throw requestError
@@ -422,7 +498,7 @@ export function FramebookApp({
   }
 
   const enhanceCurrentPrompt = async () => {
-    if (!activeTopic || !rawPrompt.trim()) {
+    if (!activeTopic || !userPrompt.trim()) {
       return
     }
 
@@ -430,11 +506,11 @@ export function FramebookApp({
     setError(null)
     try {
       const result = await framebookApi.enhancePrompt(activeTopic.id, {
-        rawPrompt,
-        aspectRatio: selectedAspectRatio,
+        rawPrompt: userPrompt,
       })
-      setRawPrompt(result.enhancedPrompt)
-      setEnhancedPrompt(result.enhancedPrompt)
+      setGenerationPrompt(result.enhancedPrompt)
+      setPromptMode("generation")
+      toast.success("Prompt enhanced")
     } catch (requestError) {
       setError(errorMessage(requestError))
     } finally {
@@ -442,59 +518,46 @@ export function FramebookApp({
     }
   }
 
+  const updatePrompt = (value: string) => {
+    if (promptMode === "generation") {
+      setGenerationPrompt(value)
+      return
+    }
+
+    setUserPrompt(value)
+  }
+
   const generateCurrentPrompt = async () => {
-    if (!activeTopic || !rawPrompt.trim()) {
+    const submittedPromptValue =
+      promptMode === "generation" ? generationPrompt : userPrompt
+
+    if (!activeTopic || !submittedPromptValue.trim()) {
       return
     }
 
     setError(null)
     try {
-      const submittedPrompt = rawPrompt.trim()
-      const submittedEnhancedPrompt = enhancedPrompt.trim()
+      const submittedUserPrompt =
+        userPrompt.trim() || submittedPromptValue.trim()
+      const submittedGenerationPrompt =
+        promptMode === "generation" ? generationPrompt.trim() : ""
       const response = await framebookApi.createGeneration(activeTopic.id, {
-        rawPrompt: submittedPrompt,
-        enhancedPrompt: submittedEnhancedPrompt,
+        rawPrompt: submittedUserPrompt,
+        enhancedPrompt: submittedGenerationPrompt,
         aspectRatio: selectedAspectRatio,
         resolutionPreset: selectedResolutionPreset,
       })
       setJob(response.job)
-      setRawPrompt("")
-      setEnhancedPrompt("")
+      setUserPrompt("")
+      setGenerationPrompt("")
+      setPromptMode("user")
+      toast.loading("Generating image...", {
+        id: "generation",
+        duration: Infinity,
+      })
     } catch (requestError) {
       setError(errorMessage(requestError))
     }
-  }
-
-  const reusePrompt = (image: ImageRecord) => {
-    setActiveTopicId(image.topicId)
-    setRawPrompt(image.rawPrompt)
-    setEnhancedPrompt(image.enhancedPrompt)
-    setSelectedAspectRatio(image.aspectRatio)
-    setScreen("topic")
-    navigateTo("topic", image.topicId)
-  }
-
-  const regenerateImage = async (image: ImageRecord) => {
-    const topic = topics.find((candidate) => candidate.id === image.topicId)
-
-    if (!topic) {
-      return
-    }
-
-    setActiveTopicId(topic.id)
-    setSelectedAspectRatio(image.aspectRatio)
-    setRawPrompt(image.rawPrompt)
-    setEnhancedPrompt(image.enhancedPrompt)
-    setScreen("topic")
-    setError(null)
-    navigateTo("topic", topic.id)
-
-    const response = await framebookApi.createGeneration(topic.id, {
-      rawPrompt: image.rawPrompt,
-      enhancedPrompt: image.enhancedPrompt,
-      aspectRatio: image.aspectRatio,
-    })
-    setJob(response.job)
   }
 
   const toggleFavorite = async (image: ImageRecord) => {
@@ -511,6 +574,9 @@ export function FramebookApp({
       current?.id === response.image.id ? response.image : current
     )
     await loadTopics()
+    toast(
+      response.image.favorite ? "Added to favorites" : "Removed from favorites"
+    )
   }
 
   const archiveImage = async (image: ImageRecord) => {
@@ -531,6 +597,7 @@ export function FramebookApp({
         current === response.image.id ? null : current
       )
       await loadTopics()
+      toast("Image archived")
     } catch (requestError) {
       setError(errorMessage(requestError))
     }
@@ -546,6 +613,7 @@ export function FramebookApp({
           text: image.rawPrompt,
           url,
         })
+        toast.success("Shared")
         return
       } catch (shareError) {
         if (
@@ -559,7 +627,9 @@ export function FramebookApp({
 
     const copied = await copyTextToClipboard(url)
 
-    if (!copied) {
+    if (copied) {
+      toast.success("Link copied to clipboard")
+    } else {
       setError(
         "Could not copy the share link automatically. Open the image and copy the URL from the address bar."
       )
@@ -582,6 +652,7 @@ export function FramebookApp({
       link.click()
       link.remove()
       window.URL.revokeObjectURL(objectUrl)
+      toast.success("Image downloaded")
     } catch (downloadError) {
       setError(errorMessage(downloadError))
     }
@@ -612,106 +683,112 @@ export function FramebookApp({
             </div>
           ) : null}
 
-          {screen === "topics" ? (
-            <TopicsScreen
-              topics={topics}
-              isLoading={isLoadingTopics}
-              onCreateTopic={startCreateTopic}
-              onOpenTopic={openTopic}
-              onEditTopic={startEditTopic}
-            />
-          ) : null}
+          <div
+            key={pageTransitionKey}
+            className="animate-in duration-200 ease-out fade-in-0"
+          >
+            {screen === "topics" ? (
+              <TopicsScreen
+                topics={topics}
+                isLoading={isLoadingTopics}
+                onCreateTopic={startCreateTopic}
+                onOpenTopic={openTopic}
+                onEditTopic={startEditTopic}
+              />
+            ) : null}
 
-          {screen === "topic-editor" && topicEditor ? (
-            <TopicEditorPage
-              editor={topicEditor}
-              onCancel={() => {
-                setTopicEditor(null)
-                navigateTo(activeTopic ? "topic" : "topics")
-              }}
-              onSubmit={submitTopic}
-            />
-          ) : null}
+            {screen === "topic-editor" && topicEditor ? (
+              <TopicEditorPage
+                editor={topicEditor}
+                onCancel={() => {
+                  setTopicEditor(null)
+                  navigateTo(activeTopic ? "topic" : "topics")
+                }}
+                onSubmit={submitTopic}
+              />
+            ) : null}
 
-          {isLoadingActiveTopic ? <TopicWorkspaceSkeleton /> : null}
+            {isLoadingActiveTopic ? <TopicWorkspaceSkeleton /> : null}
 
-          {screen === "topic" && activeTopic ? (
-            <TopicWorkspace
-              topic={activeTopic}
-              images={images}
-              rawPrompt={rawPrompt}
-              enhancedPrompt={enhancedPrompt}
-              selectedAspectRatio={selectedAspectRatio}
-              selectedResolutionPreset={selectedResolutionPreset}
-              favoriteOnly={favoriteOnly}
-              job={job}
-              isEnhancing={isEnhancing}
-              isLoadingImages={isLoadingImages}
-              onBack={() => navigateTo("topics")}
-              onEditTopic={() => startEditTopic(activeTopic)}
-              onArchiveTopic={archiveActiveTopic}
-              onRawPromptChange={setRawPrompt}
-              onAspectRatioChange={setSelectedAspectRatio}
-              onResolutionPresetChange={setSelectedResolutionPreset}
-              onEnhancePrompt={enhanceCurrentPrompt}
-              onGenerate={generateCurrentPrompt}
-              onToggleFavorite={toggleFavorite}
-              onRevealImage={(image) => framebookApi.revealImage(image.id)}
-              onPreviewImage={(image) => {
-                setPreviewImageId(image.id)
-              }}
-              onViewImageDetails={openImageDetail}
-              onDownloadImage={downloadImage}
-              onFavoriteFilterChange={setFavoriteOnly}
-            />
-          ) : null}
+            {screen === "topic" && activeTopic ? (
+              <TopicWorkspace
+                topic={activeTopic}
+                images={images}
+                promptValue={promptValue}
+                hasGenerationPrompt={promptMode === "generation"}
+                selectedAspectRatio={selectedAspectRatio}
+                selectedResolutionPreset={selectedResolutionPreset}
+                favoriteOnly={favoriteOnly}
+                job={job}
+                isEnhancing={isEnhancing}
+                isLoadingImages={isLoadingImages}
+                onBack={() => navigateTo("topics")}
+                onEditTopic={() => startEditTopic(activeTopic)}
+                onArchiveTopic={archiveActiveTopic}
+                onPromptChange={updatePrompt}
+                onAspectRatioChange={setSelectedAspectRatio}
+                onResolutionPresetChange={setSelectedResolutionPreset}
+                onEnhancePrompt={enhanceCurrentPrompt}
+                onGenerate={generateCurrentPrompt}
+                onToggleFavorite={toggleFavorite}
+                onRevealImage={(image) => framebookApi.revealImage(image.id)}
+                onPreviewImage={(image) => {
+                  setPreviewImageId(image.id)
+                }}
+                onViewImageDetails={openImageDetail}
+                onDownloadImage={downloadImage}
+                onFavoriteFilterChange={setFavoriteOnly}
+              />
+            ) : null}
 
-          {screen === "starred" || screen === "gallery" ? (
-            <StarredScreen
-              images={starredImages}
-              isLoading={isLoadingStarredImages}
-              onToggleFavorite={toggleFavorite}
-              onPreviewImage={(image) => {
-                setPreviewImageId(image.id)
-              }}
-              onViewImageDetails={openImageDetail}
-            />
-          ) : null}
+            {screen === "starred" || screen === "gallery" ? (
+              <StarredScreen
+                images={starredImages}
+                isLoading={isStarredImagesLoading}
+                onToggleFavorite={toggleFavorite}
+                onPreviewImage={(image) => {
+                  setPreviewImageId(image.id)
+                }}
+                onViewImageDetails={openImageDetail}
+              />
+            ) : null}
 
-          {screen === "topic" && !activeTopic && !isLoadingActiveTopic ? (
-            <EmptyPanel
-              title="Choose a topic"
-              body="Create or open a topic before generating images."
-              actionLabel="Go to topics"
-              onAction={() => navigateTo("topics")}
-            />
-          ) : null}
+            {screen === "topic" && !activeTopic && !isLoadingActiveTopic ? (
+              <EmptyPanel
+                title="Choose a topic"
+                body="Create or open a topic before generating images."
+                actionLabel="Go to topics"
+                onAction={() => navigateTo("topics")}
+              />
+            ) : null}
 
-          {screen === "settings" ? (
-            <SettingsScreen onUnarchiveTopic={unarchiveTopic} />
-          ) : null}
+            {screen === "settings" ? (
+              <SettingsScreen
+                onUnarchiveImage={unarchiveImage}
+                onUnarchiveTopic={unarchiveTopic}
+              />
+            ) : null}
 
-          {screen === "image-detail" ? (
-            <ImageDetailPage
-              image={activeDetailImage}
-              onBack={() => {
-                const topicId = activeDetailImage?.topicId ?? activeTopicId
-                navigateTo(
-                  imageDetailBackScreen === "starred" ? "starred" : "topic",
-                  topicId ?? undefined
-                )
-              }}
-              onToggleFavorite={toggleFavorite}
-              onReusePrompt={reusePrompt}
-              onRegenerate={regenerateImage}
-              onRevealImage={(image) => framebookApi.revealImage(image.id)}
-              onPreviewImage={(image) => {
-                setPreviewImageId(image.id)
-              }}
-              onDownloadImage={downloadImage}
-              onShareImage={shareImage}
-            />
-          ) : null}
+            {screen === "image-detail" ? (
+              <ImageDetailPage
+                image={isLoadingActiveImageDetail ? null : activeDetailImage}
+                onTopicsClick={() => navigateTo("topics")}
+                onBack={() => {
+                  const topicId = activeDetailImage?.topicId ?? activeTopicId
+                  navigateTo(
+                    imageDetailBackScreen === "starred" ? "starred" : "topic",
+                    topicId ?? undefined
+                  )
+                }}
+                onRevealImage={(image) => framebookApi.revealImage(image.id)}
+                onPreviewImage={(image) => {
+                  setPreviewImageId(image.id)
+                }}
+                onDownloadImage={downloadImage}
+                onShareImage={shareImage}
+              />
+            ) : null}
+          </div>
         </section>
       </div>
 
@@ -729,6 +806,10 @@ export function FramebookApp({
 
 function isActiveGenerationJob(job: GenerationJob) {
   return job.status === "queued" || job.status === "running"
+}
+
+function isStarredImagesScreen(screen: Screen) {
+  return screen === "starred" || screen === "gallery"
 }
 
 function updateStarredImages(current: Array<ImageRecord>, image: ImageRecord) {

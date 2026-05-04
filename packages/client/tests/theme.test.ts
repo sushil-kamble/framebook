@@ -1,14 +1,33 @@
-import { describe, expect, it, vi } from "vitest"
+import { act, render, screen, waitFor } from "@testing-library/react"
+import { createElement } from "react"
+import { renderToString } from "react-dom/server"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   applyThemeMode,
   defaultThemeMode,
   getInitialThemeMode,
   readStoredThemeMode,
   themeStorageKey,
+  useThemeMode,
   writeStoredThemeMode,
 } from "../src/app/lib/theme"
 
+function ThemeModeProbe() {
+  const { themeMode, setThemeMode } = useThemeMode()
+
+  return createElement(
+    "button",
+    { type: "button", onClick: () => setThemeMode("light") },
+    themeMode
+  )
+}
+
 describe("theme helpers", () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    document.documentElement.className = ""
+  })
+
   it("reads only supported theme modes from storage", () => {
     expect(
       readStoredThemeMode({
@@ -52,5 +71,35 @@ describe("theme helpers", () => {
     window.localStorage.setItem(themeStorageKey, "system")
 
     expect(getInitialThemeMode()).toBe(defaultThemeMode)
+  })
+
+  it("renders the hydration-safe default theme before client storage effects", () => {
+    window.localStorage.setItem(themeStorageKey, "light")
+
+    expect(renderToString(createElement(ThemeModeProbe))).toContain(
+      defaultThemeMode
+    )
+  })
+
+  it("applies the persisted theme after mount", async () => {
+    window.localStorage.setItem(themeStorageKey, "light")
+
+    render(createElement(ThemeModeProbe))
+
+    await waitFor(() => {
+      expect(screen.getByRole("button").textContent).toBe("light")
+    })
+    expect(document.documentElement.classList.contains("light")).toBe(true)
+  })
+
+  it("persists explicit theme changes", async () => {
+    render(createElement(ThemeModeProbe))
+
+    await act(() => {
+      screen.getByRole("button").click()
+    })
+
+    expect(window.localStorage.getItem(themeStorageKey)).toBe("light")
+    expect(document.documentElement.classList.contains("light")).toBe(true)
   })
 })

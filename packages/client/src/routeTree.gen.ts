@@ -16,8 +16,8 @@ import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TopicsNewRouteImport } from './routes/topics.new'
 import { Route as TopicsTopicIdRouteImport } from './routes/topics.$topicId'
-import { Route as ImagesImageIdRouteImport } from './routes/images.$imageId'
 import { Route as TopicsTopicIdEditRouteImport } from './routes/topics.$topicId.edit'
+import { Route as TopicsTopicIdImagesImageIdRouteImport } from './routes/topics.$topicId.images.$imageId'
 
 const TopicsRoute = TopicsRouteImport.update({
   id: '/topics',
@@ -54,16 +54,17 @@ const TopicsTopicIdRoute = TopicsTopicIdRouteImport.update({
   path: '/$topicId',
   getParentRoute: () => TopicsRoute,
 } as any)
-const ImagesImageIdRoute = ImagesImageIdRouteImport.update({
-  id: '/images/$imageId',
-  path: '/images/$imageId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TopicsTopicIdEditRoute = TopicsTopicIdEditRouteImport.update({
   id: '/edit',
   path: '/edit',
   getParentRoute: () => TopicsTopicIdRoute,
 } as any)
+const TopicsTopicIdImagesImageIdRoute =
+  TopicsTopicIdImagesImageIdRouteImport.update({
+    id: '/images/$imageId',
+    path: '/images/$imageId',
+    getParentRoute: () => TopicsTopicIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -71,10 +72,10 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
   '/topics': typeof TopicsRouteWithChildren
-  '/images/$imageId': typeof ImagesImageIdRoute
   '/topics/$topicId': typeof TopicsTopicIdRouteWithChildren
   '/topics/new': typeof TopicsNewRoute
   '/topics/$topicId/edit': typeof TopicsTopicIdEditRoute
+  '/topics/$topicId/images/$imageId': typeof TopicsTopicIdImagesImageIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -82,10 +83,10 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
   '/topics': typeof TopicsRouteWithChildren
-  '/images/$imageId': typeof ImagesImageIdRoute
   '/topics/$topicId': typeof TopicsTopicIdRouteWithChildren
   '/topics/new': typeof TopicsNewRoute
   '/topics/$topicId/edit': typeof TopicsTopicIdEditRoute
+  '/topics/$topicId/images/$imageId': typeof TopicsTopicIdImagesImageIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -94,10 +95,10 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/starred': typeof StarredRoute
   '/topics': typeof TopicsRouteWithChildren
-  '/images/$imageId': typeof ImagesImageIdRoute
   '/topics/$topicId': typeof TopicsTopicIdRouteWithChildren
   '/topics/new': typeof TopicsNewRoute
   '/topics/$topicId/edit': typeof TopicsTopicIdEditRoute
+  '/topics/$topicId/images/$imageId': typeof TopicsTopicIdImagesImageIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -107,10 +108,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/starred'
     | '/topics'
-    | '/images/$imageId'
     | '/topics/$topicId'
     | '/topics/new'
     | '/topics/$topicId/edit'
+    | '/topics/$topicId/images/$imageId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -118,10 +119,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/starred'
     | '/topics'
-    | '/images/$imageId'
     | '/topics/$topicId'
     | '/topics/new'
     | '/topics/$topicId/edit'
+    | '/topics/$topicId/images/$imageId'
   id:
     | '__root__'
     | '/'
@@ -129,10 +130,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/starred'
     | '/topics'
-    | '/images/$imageId'
     | '/topics/$topicId'
     | '/topics/new'
     | '/topics/$topicId/edit'
+    | '/topics/$topicId/images/$imageId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -141,7 +142,6 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StarredRoute: typeof StarredRoute
   TopicsRoute: typeof TopicsRouteWithChildren
-  ImagesImageIdRoute: typeof ImagesImageIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -195,13 +195,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TopicsTopicIdRouteImport
       parentRoute: typeof TopicsRoute
     }
-    '/images/$imageId': {
-      id: '/images/$imageId'
-      path: '/images/$imageId'
-      fullPath: '/images/$imageId'
-      preLoaderRoute: typeof ImagesImageIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/topics/$topicId/edit': {
       id: '/topics/$topicId/edit'
       path: '/edit'
@@ -209,15 +202,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TopicsTopicIdEditRouteImport
       parentRoute: typeof TopicsTopicIdRoute
     }
+    '/topics/$topicId/images/$imageId': {
+      id: '/topics/$topicId/images/$imageId'
+      path: '/images/$imageId'
+      fullPath: '/topics/$topicId/images/$imageId'
+      preLoaderRoute: typeof TopicsTopicIdImagesImageIdRouteImport
+      parentRoute: typeof TopicsTopicIdRoute
+    }
   }
 }
 
 interface TopicsTopicIdRouteChildren {
   TopicsTopicIdEditRoute: typeof TopicsTopicIdEditRoute
+  TopicsTopicIdImagesImageIdRoute: typeof TopicsTopicIdImagesImageIdRoute
 }
 
 const TopicsTopicIdRouteChildren: TopicsTopicIdRouteChildren = {
   TopicsTopicIdEditRoute: TopicsTopicIdEditRoute,
+  TopicsTopicIdImagesImageIdRoute: TopicsTopicIdImagesImageIdRoute,
 }
 
 const TopicsTopicIdRouteWithChildren = TopicsTopicIdRoute._addFileChildren(
@@ -243,7 +245,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StarredRoute: StarredRoute,
   TopicsRoute: TopicsRouteWithChildren,
-  ImagesImageIdRoute: ImagesImageIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

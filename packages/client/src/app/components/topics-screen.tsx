@@ -43,18 +43,14 @@ export function TopicsScreen({
       </header>
 
       {isLoading ? (
-        <div
-          className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
-          aria-label="Loading topics"
-        >
-          <TopicCardSkeleton />
+        <div className="grid gap-4 md:grid-cols-2" aria-label="Loading topics">
           <TopicCardSkeleton />
           <TopicCardSkeleton />
         </div>
       ) : null}
 
       {!isLoading && topics.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {topics.map((topic) => (
             <TopicCard
               key={topic.id}
@@ -144,7 +140,7 @@ function TopicCard({
                   {topic.name}
                 </h2>
                 <time
-                  className="mt-0.5 shrink-0 text-[11px] font-medium tracking-normal text-muted-foreground/65 normal-case"
+                  className="mt-0.5 shrink-0 text-[11px] font-medium tracking-normal text-muted-foreground/65 normal-case italic"
                   dateTime={topic.updatedAt}
                 >
                   {formatDate(topic.updatedAt)}
@@ -166,7 +162,7 @@ function TopicCard({
           type="button"
           variant="outline"
           size="xs"
-          className="h-7 rounded-full px-2.5 text-[11px] text-muted-foreground hover:text-accent-foreground"
+          className="h-7 rounded-lg px-2.5 text-[11px] text-muted-foreground hover:text-accent-foreground"
           onClick={onEdit}
           aria-label={`Edit ${topic.name}`}
         >

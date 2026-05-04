@@ -1,14 +1,25 @@
+import { constants as fsConstants } from "node:fs"
+import { access, stat } from "node:fs/promises"
 import path from "node:path"
 import { enhancePrompt } from "./enhancer.mjs"
 import { isAspectRatio, isEnhancerMode } from "./constants.mjs"
+import {
+  createImageOptimizer,
+  imageVariantMimeType,
+  imageVariantWidths,
+  isImageVariantWidth,
+  variantFileName,
+} from "./image-optimizer.mjs"
 import { createFramebookStore } from "./storage.mjs"
 import { createCodexClient } from "#infra/agent-clients/codex.mjs"
 
 const resolutionPresets = new Set(["1k", "2k", "4k"])
+const imageTitleMaxLength = 60
 
 export function createFramebookService({
   store = createFramebookStore(),
   codexClient = createCodexClient(),
+  imageOptimizer = createImageOptimizer(),
   autoRunJobs = true,
 } = {}) {
   const jobRunners = new Map()
@@ -145,7 +156,9 @@ export function createFramebookService({
 
   async function listImages(topicId, { favoriteOnly = false } = {}) {
     await ensureTopic(topicId)
-    const images = await store.listImages()
+    const images = await listImagesWithOptimization(
+      (image) => image.topicId === topicId
+    )
     return images
       .filter((image) => image.topicId === topicId)
       .filter((image) => !image.archivedAt)
@@ -161,12 +174,26 @@ export function createFramebookService({
     const activeTopicIds = new Set(
       topics.filter((topic) => !topic.archivedAt).map((topic) => topic.id)
     )
+    const optimizedImages = await ensureImageOptimizations(
+      images,
+      (image) =>
+        activeTopicIds.has(image.topicId) && !image.archivedAt && image.favorite
+    )
 
-    return images
+    return optimizedImages
       .filter((image) => activeTopicIds.has(image.topicId))
       .filter((image) => !image.archivedAt)
       .filter((image) => image.favorite)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  async function listArchivedImages() {
+    const images = await store.listImages()
+    return images
+      .filter((image) => image.archivedAt)
+      .sort((left, right) =>
+        (right.archivedAt ?? "").localeCompare(left.archivedAt ?? "")
+      )
   }
 
   async function addImageRecord(input) {
@@ -176,7 +203,8 @@ export function createFramebookService({
       id: input.id || store.createId(),
       topicId: topic.id,
       generationJobId: input.generationJobId ?? null,
-      title: titleFromPrompt(input.rawPrompt),
+      title:
+        normalizeImageTitle(input.title) || titleFromPrompt(input.rawPrompt),
       rawPrompt: requireText(input.rawPrompt, "Raw prompt is required"),
       enhancedPrompt: requireText(
         input.enhancedPrompt,
@@ -194,14 +222,15 @@ export function createFramebookService({
       mimeType: input.mimeType || "image/png",
       createdAt: input.createdAt || now,
     }
+    const optimizedRecord = await maybeOptimizeImageRecord(record)
 
     const [topics, images] = await Promise.all([
       store.listTopics(),
       store.listImages(),
     ])
-    await store.writeImages([...images, record])
-    await touchTopic(topics, topic.id, record.createdAt)
-    return record
+    await store.writeImages([...images, optimizedRecord])
+    await touchTopic(topics, topic.id, optimizedRecord.createdAt)
+    return optimizedRecord
   }
 
   async function updateImage(imageId, input) {
@@ -240,7 +269,7 @@ export function createFramebookService({
       throw notFound("Image not found")
     }
 
-    return image
+    return optimizeImageInCollection(imageId)
   }
 
   async function getImageFile(imageId) {
@@ -252,21 +281,48 @@ export function createFramebookService({
     return { filePath, mimeType: image.mimeType, image }
   }
 
+  async function getImageVariantFile(imageId, width) {
+    if (!isImageVariantWidth(width)) {
+      throw badRequest("Unsupported image variant width")
+    }
+
+    let image = await getImage(imageId)
+    let variant = findImageVariant(image, width)
+    let filePath = variant
+      ? path.join(store.getTopicAssetDir(image.topicId), variant.fileName)
+      : null
+
+    if (!variant || !(await fileExists(filePath))) {
+      image = await optimizeImageInCollection(imageId, { force: true })
+      variant = findImageVariant(image, width)
+      filePath = variant
+        ? path.join(store.getTopicAssetDir(image.topicId), variant.fileName)
+        : null
+    }
+
+    if (!variant || !(await fileExists(filePath))) {
+      throw notFound("Image variant not found")
+    }
+
+    const details = await stat(filePath)
+    return {
+      filePath,
+      mimeType: imageVariantMimeType,
+      etag: etagForStat(details),
+      image,
+      variant,
+    }
+  }
+
   async function enhanceTopicPrompt(topicId, input) {
     const topic = await ensureTopic(topicId)
     const rawPrompt = requireText(input.rawPrompt, "Raw prompt is required")
-    const aspectRatio = input.aspectRatio
-      ? requireAspectRatio(input.aspectRatio)
-      : topic.defaultAspectRatio
-    const enhancedPrompt =
-      typeof codexClient.enhancePrompt === "function"
-        ? await codexClient.enhancePrompt({ topic, rawPrompt, aspectRatio })
-        : enhancePrompt({ topic, rawPrompt, aspectRatio })
+    const enhancedPrompt = await resolveEnhancedPrompt({ topic, rawPrompt })
 
     return {
       rawPrompt,
       enhancedPrompt,
-      aspectRatio,
+      aspectRatio: topic.defaultAspectRatio,
     }
   }
 
@@ -276,19 +332,32 @@ export function createFramebookService({
     const aspectRatio = input.aspectRatio
       ? requireAspectRatio(input.aspectRatio)
       : topic.defaultAspectRatio
+    const resolutionPreset = requireResolutionPreset(input.resolutionPreset)
     const enhancedPrompt =
       optionalText(input.enhancedPrompt) ||
-      enhancePrompt({ topic, rawPrompt, aspectRatio })
+      (await resolveEnhancedPrompt({ topic, rawPrompt }))
+    const title = await resolveImageTitle({
+      topic,
+      rawPrompt,
+      enhancedPrompt,
+      inputTitle: input.title,
+    })
+    const finalPrompt = buildFinalPrompt({
+      enhancedPrompt,
+      aspectRatio,
+      resolutionPreset,
+    })
     const now = new Date().toISOString()
     const job = {
       id: store.createId(),
       topicId: topic.id,
       status: "queued",
+      title,
       rawPrompt,
       enhancedPrompt,
-      finalPrompt: enhancedPrompt,
+      finalPrompt,
       aspectRatio,
-      resolutionPreset: requireResolutionPreset(input.resolutionPreset),
+      resolutionPreset,
       imageId: null,
       error: null,
       createdAt: now,
@@ -312,6 +381,7 @@ export function createFramebookService({
     const topic = await ensureTopic(topicId)
     const jobs = await store.listJobs()
     const filteredJobs = jobs
+      .map(normalizeGenerationJob)
       .filter((job) => job.topicId === topic.id)
       .filter((job) => !activeOnly || isActiveGenerationJob(job))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -335,7 +405,7 @@ export function createFramebookService({
       throw notFound("Generation job not found")
     }
 
-    return job
+    return normalizeGenerationJob(job)
   }
 
   async function runGenerationJob(jobId) {
@@ -361,6 +431,7 @@ export function createFramebookService({
 
     let job = await updateJob(jobId, {
       status: "running",
+      title: currentJob.title || titleFromPrompt(currentJob.rawPrompt),
       error: null,
       updatedAt: new Date().toISOString(),
     })
@@ -381,6 +452,7 @@ export function createFramebookService({
       const image = await addImageRecord({
         topicId: topic.id,
         generationJobId: job.id,
+        title: job.title,
         rawPrompt: job.rawPrompt,
         enhancedPrompt: job.enhancedPrompt,
         finalPrompt: job.finalPrompt,
@@ -420,6 +492,87 @@ export function createFramebookService({
     })
   }
 
+  async function listImagesWithOptimization(shouldOptimize) {
+    const images = await store.listImages()
+    return ensureImageOptimizations(images, shouldOptimize)
+  }
+
+  async function ensureImageOptimizations(images, shouldOptimize) {
+    let changed = false
+    const optimizedImages = []
+
+    for (const image of images) {
+      const optimizedImage = shouldOptimize(image)
+        ? await maybeOptimizeImageRecord(image)
+        : image
+
+      if (optimizedImage !== image) {
+        changed = true
+      }
+
+      optimizedImages.push(optimizedImage)
+    }
+
+    if (changed) {
+      await store.writeImages(optimizedImages)
+    }
+
+    return optimizedImages
+  }
+
+  async function optimizeImageInCollection(imageId, { force = false } = {}) {
+    const images = await store.listImages()
+    const imageIndex = images.findIndex((candidate) => candidate.id === imageId)
+
+    if (imageIndex === -1) {
+      throw notFound("Image not found")
+    }
+
+    const optimizedImage = await maybeOptimizeImageRecord(images[imageIndex], {
+      force,
+    })
+
+    if (optimizedImage !== images[imageIndex]) {
+      images[imageIndex] = optimizedImage
+      await store.writeImages(images)
+    }
+
+    return optimizedImage
+  }
+
+  async function maybeOptimizeImageRecord(image, { force = false } = {}) {
+    if (!force && hasCompleteOptimization(image)) {
+      return image
+    }
+
+    if (!canOptimizeImage(image)) {
+      return image
+    }
+
+    const assetDir = store.getTopicAssetDir(image.topicId)
+    const sourcePath = path.join(assetDir, image.fileName)
+
+    if (!(await fileExists(sourcePath))) {
+      return image
+    }
+
+    try {
+      const optimization = await imageOptimizer.optimize({
+        image,
+        sourcePath,
+        assetDir,
+      })
+      return { ...image, ...optimization }
+    } catch (error) {
+      throw new Error(
+        `Failed to optimize image ${image.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error }
+      )
+    }
+  }
+
   async function ensureTopic(topicId) {
     const topics = await store.listTopics()
     const topic = topics.find((candidate) => candidate.id === topicId)
@@ -456,6 +609,47 @@ export function createFramebookService({
     await store.writeTopics(topics)
   }
 
+  async function resolveEnhancedPrompt({ topic, rawPrompt }) {
+    return typeof codexClient.enhancePrompt === "function"
+      ? await codexClient.enhancePrompt({ topic, rawPrompt })
+      : enhancePrompt({ topic, rawPrompt })
+  }
+
+  async function resolveImageTitle({
+    topic,
+    rawPrompt,
+    enhancedPrompt,
+    inputTitle,
+  }) {
+    const explicitTitle =
+      normalizeImageTitle(inputTitle) ||
+      extractExplicitTitleFromPrompt(rawPrompt)
+
+    if (explicitTitle) {
+      return explicitTitle
+    }
+
+    if (typeof codexClient.generateTitle !== "function") {
+      return titleFromPrompt(rawPrompt)
+    }
+
+    try {
+      const generatedTitle = await codexClient.generateTitle({
+        topic,
+        rawPrompt,
+        enhancedPrompt,
+      })
+      return normalizeImageTitle(generatedTitle) || titleFromPrompt(rawPrompt)
+    } catch (error) {
+      console.warn(
+        `[framebook] title generation failed, falling back to prompt title: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+      return titleFromPrompt(rawPrompt)
+    }
+  }
+
   return {
     dataDir: store.rootDir,
     dbPath: store.dbPath,
@@ -467,10 +661,12 @@ export function createFramebookService({
     unarchiveTopic,
     listImages,
     listStarredImages,
+    listArchivedImages,
     addImageRecord,
     updateImage,
     getImage,
     getImageFile,
+    getImageVariantFile,
     enhanceTopicPrompt,
     createGeneration,
     listGenerationJobs,
@@ -479,8 +675,72 @@ export function createFramebookService({
   }
 }
 
+function hasCompleteOptimization(image) {
+  return (
+    Number.isInteger(image.width) &&
+    image.width > 0 &&
+    Number.isInteger(image.height) &&
+    image.height > 0 &&
+    typeof image.placeholderColor === "string" &&
+    imageVariantWidths.every((width) =>
+      image.variants?.some(
+        (variant) =>
+          variant.fileName === variantFileName(image.fileName, width) &&
+          variant.mimeType === imageVariantMimeType
+      )
+    )
+  )
+}
+
+function canOptimizeImage(image) {
+  return (
+    String(image.mimeType).startsWith("image/") &&
+    image.mimeType !== "image/svg+xml"
+  )
+}
+
+function findImageVariant(image, width) {
+  const expectedFileName = variantFileName(image.fileName, width)
+
+  return image.variants?.find(
+    (variant) =>
+      variant.fileName === expectedFileName &&
+      variant.mimeType === imageVariantMimeType
+  )
+}
+
+async function fileExists(filePath) {
+  if (!filePath) {
+    return false
+  }
+
+  try {
+    await access(filePath, fsConstants.F_OK)
+    return true
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return false
+    }
+
+    throw error
+  }
+}
+
+function etagForStat(details) {
+  return `"${details.size.toString(16)}-${Math.trunc(details.mtimeMs).toString(
+    16
+  )}"`
+}
+
 function isActiveGenerationJob(job) {
   return job.status === "queued" || job.status === "running"
+}
+
+function normalizeGenerationJob(job) {
+  return {
+    ...job,
+    title: normalizeImageTitle(job.title) || titleFromPrompt(job.rawPrompt),
+  }
 }
 
 function summarizeTopic(topic, images) {
@@ -551,9 +811,77 @@ function requireResolutionPreset(value) {
   return value
 }
 
+function buildFinalPrompt({ enhancedPrompt, aspectRatio, resolutionPreset }) {
+  return [
+    enhancedPrompt,
+    "",
+    "Generation requirements:",
+    `- Aspect ratio: ${aspectRatio}`,
+    `- Output resolution: ${formatResolutionPreset(resolutionPreset)}`,
+  ].join("\n")
+}
+
+function formatResolutionPreset(value) {
+  switch (value) {
+    case "2k":
+      return "2K"
+    case "4k":
+      return "4K"
+    case "1k":
+    default:
+      return "1K"
+  }
+}
+
+function extractExplicitTitleFromPrompt(prompt) {
+  const match = String(prompt ?? "").match(
+    /^\s*(?:image\s+title|title)\s*:\s*([^\n\r]+)/iu
+  )
+  return normalizeImageTitle(match?.[1])
+}
+
+function normalizeImageTitle(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/^```(?:text)?/iu, "")
+    .replace(/```$/u, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!normalized) {
+    return ""
+  }
+
+  const cleaned = normalized
+    .replace(/^(?:image\s+title|title)\s*:\s*/iu, "")
+    .replace(/^["'`*_]+|["'`*_]+$/gu, "")
+    .replace(/\b(?:high|best|premium|ultra)\s+quality\b/giu, "")
+    .replace(/\bultra[-\s]?detailed\b/giu, "")
+    .replace(/\baspect\s*ratio\s*:?\s*\d+\s*:\s*\d+\b/giu, "")
+    .replace(/\b\d+\s*k\s*(?:output\s*)?resolution\b/giu, "")
+    .replace(/\s+/g, " ")
+    .replace(/[|,;:./\-\s]+$/gu, "")
+    .trim()
+
+  if (!cleaned) {
+    return ""
+  }
+
+  if (cleaned.length <= imageTitleMaxLength) {
+    return cleaned
+  }
+
+  const wordBoundary = cleaned
+    .slice(0, imageTitleMaxLength)
+    .replace(/\s+\S*$/u, "")
+  return (wordBoundary || cleaned.slice(0, imageTitleMaxLength)).trim()
+}
+
 function titleFromPrompt(prompt) {
-  const normalized = String(prompt).replace(/\s+/g, " ").trim()
-  return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized
+  const normalized = String(prompt ?? "")
+    .split(/\r?\n/u)
+    .find((line) => line.trim())
+  return normalizeImageTitle(normalized) || "Untitled image"
 }
 
 function badRequest(message) {

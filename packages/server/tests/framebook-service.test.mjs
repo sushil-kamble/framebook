@@ -1,30 +1,39 @@
-import { access, mkdtemp, rm } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import sharp from "sharp"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createHttpServer } from "../src/app/http-server.mjs"
+import { setFramebookServiceForTesting } from "../src/app/router.mjs"
 import { createFramebookService } from "../src/domains/framebook/service.mjs"
 import { createFramebookStore } from "../src/domains/framebook/storage.mjs"
 import {
+  buildImageTitlePrompt,
   buildImageGenerationPrompt,
   buildPromptEnhancementPrompt,
+  CodexAppServerImageClient,
   createFakeCodexClient,
 } from "../src/infrastructure/agent-clients/codex.mjs"
 
 describe("framebook service", () => {
   let dataDir
+  let store
   let service
 
   beforeEach(async () => {
     dataDir = await mkdtemp(path.join(os.tmpdir(), "framebook-test-"))
+    store = createFramebookStore({ dataDir })
     service = createFramebookService({
-      store: createFramebookStore({ dataDir }),
+      store,
       codexClient: createFakeCodexClient(),
       autoRunJobs: false,
     })
   })
 
   afterEach(async () => {
+    setFramebookServiceForTesting(undefined)
+    store?.close()
     await rm(dataDir, { recursive: true, force: true })
   })
 
@@ -153,6 +162,53 @@ describe("framebook service", () => {
     ])
   })
 
+  it("lists archived images newest archive first", async () => {
+    const topic = await createTopic(service)
+    const firstImage = await service.addImageRecord({
+      topicId: topic.id,
+      rawPrompt: "Rainy scooter ride through coffee estate",
+      enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
+      finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
+      aspectRatio: "4:3",
+      enhancerMode: "doodle-explainer",
+      fileName: "scooter.svg",
+      mimeType: "image/svg+xml",
+      favorite: true,
+    })
+    const secondImage = await service.addImageRecord({
+      topicId: topic.id,
+      rawPrompt: "Steaming tea stall",
+      enhancedPrompt: "Enhanced steaming tea stall.",
+      finalPrompt: "Enhanced steaming tea stall.",
+      aspectRatio: "16:9",
+      enhancerMode: "balanced",
+      fileName: "tea.svg",
+      mimeType: "image/svg+xml",
+      favorite: false,
+    })
+
+    const firstArchived = await service.updateImage(firstImage.id, {
+      archived: true,
+    })
+    await sleep(2)
+    const secondArchived = await service.updateImage(secondImage.id, {
+      archived: true,
+    })
+
+    await expect(service.listArchivedImages()).resolves.toEqual([
+      secondArchived,
+      firstArchived,
+    ])
+
+    const restored = await service.updateImage(firstImage.id, {
+      archived: false,
+    })
+    expect(restored.archivedAt).toBeNull()
+    await expect(service.listArchivedImages()).resolves.toEqual([
+      secondArchived,
+    ])
+  })
+
   it("lists starred images across active topics only", async () => {
     const firstTopic = await createTopic(service)
     const secondTopic = await service.createTopic({
@@ -226,7 +282,7 @@ describe("framebook service", () => {
     ])
   })
 
-  it("enhances prompts with topic context, mode guidance, and aspect ratio", async () => {
+  it("enhances prompts without injecting output settings or quality language", async () => {
     const topic = await createTopic(service)
     const result = await service.enhanceTopicPrompt(topic.id, {
       rawPrompt: "Morning tea stall in misty hills",
@@ -236,7 +292,9 @@ describe("framebook service", () => {
     expect(result.enhancedPrompt).toContain("Morning tea stall in misty hills")
     expect(result.enhancedPrompt).toContain(topic.instruction)
     expect(result.enhancedPrompt).toContain("storytelling clarity")
-    expect(result.enhancedPrompt).toContain("Aspect ratio: 16:9")
+    expect(result.enhancedPrompt).not.toMatch(
+      /aspect ratio|16:9|resolution|quality/iu
+    )
   })
 
   it("uses codex app-server client when enhancing prompts", async () => {
@@ -271,6 +329,11 @@ describe("framebook service", () => {
     })
 
     expect(job.status).toBe("queued")
+    expect(job.title).toBe(
+      "A red train crossing a stone viaduct in the Swiss Alps"
+    )
+    expect(job.finalPrompt).toContain("Aspect ratio: 16:9")
+    expect(job.finalPrompt).toContain("Output resolution: 1K")
 
     const finishedJob = await service.runGenerationJob(job.id)
     expect(finishedJob.status).toBe("succeeded")
@@ -280,14 +343,255 @@ describe("framebook service", () => {
     expect(images).toHaveLength(1)
     expect(images[0]).toMatchObject({
       generationJobId: job.id,
+      title: job.title,
       rawPrompt: "A red train crossing a stone viaduct in the Swiss Alps",
       aspectRatio: "16:9",
       fileName: `${job.id}.png`,
       mimeType: "image/png",
+      width: 1,
+      height: 1,
+      placeholderColor: expect.stringMatching(/^#[0-9a-f]{6}$/u),
     })
+    expect(images[0].variants).toHaveLength(4)
+    expect(images[0].variants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: 1,
+          height: 1,
+          fileName: `${job.id}-480w.webp`,
+          mimeType: "image/webp",
+        }),
+      ])
+    )
 
     const { filePath } = await service.getImageFile(images[0].id)
     await expect(access(filePath)).resolves.toBeUndefined()
+    await expect(
+      access(path.join(dataDir, "images", topic.id, `${job.id}-480w.webp`))
+    ).resolves.toBeUndefined()
+  })
+
+  it("backfills optimization metadata for existing image records on list", async () => {
+    const topic = await createTopic(service)
+    const fileName = "legacy.png"
+    await writePng(path.join(dataDir, "images", topic.id, fileName), {
+      width: 1200,
+      height: 900,
+    })
+    const legacyImage = {
+      id: "legacy-image",
+      topicId: topic.id,
+      generationJobId: null,
+      title: "Legacy image",
+      rawPrompt: "Legacy prompt",
+      enhancedPrompt: "Enhanced legacy prompt.",
+      finalPrompt: "Enhanced legacy prompt.",
+      aspectRatio: "4:3",
+      enhancerMode: "storyboard",
+      topicSnapshot: {
+        id: topic.id,
+        name: topic.name,
+        instruction: topic.instruction,
+        defaultAspectRatio: topic.defaultAspectRatio,
+        basePromptDetails: topic.basePromptDetails,
+        enhancerMode: topic.enhancerMode,
+      },
+      favorite: true,
+      archivedAt: null,
+      fileName,
+      mimeType: "image/png",
+      createdAt: "2026-05-04T10:00:00.000Z",
+    }
+    await store.writeImages([legacyImage])
+
+    const images = await service.listImages(topic.id)
+
+    expect(images[0]).toMatchObject({
+      id: legacyImage.id,
+      width: 1200,
+      height: 900,
+      placeholderColor: expect.stringMatching(/^#[0-9a-f]{6}$/u),
+    })
+    expect(images[0].variants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: 480,
+          height: 360,
+          fileName: "legacy-480w.webp",
+          mimeType: "image/webp",
+        }),
+      ])
+    )
+
+    const persisted = await store.listImages()
+    expect(persisted[0].variants).toHaveLength(4)
+  })
+
+  it("serves image variants with immutable webp cache headers", async () => {
+    const topic = await createTopic(service)
+    const fileName = "poster.png"
+    await writePng(path.join(dataDir, "images", topic.id, fileName), {
+      width: 1200,
+      height: 900,
+    })
+    const image = await service.addImageRecord({
+      topicId: topic.id,
+      rawPrompt: "Swiss rail poster",
+      enhancedPrompt: "Enhanced Swiss rail poster.",
+      finalPrompt: "Enhanced Swiss rail poster.",
+      aspectRatio: "4:3",
+      enhancerMode: "storyboard",
+      fileName,
+      mimeType: "image/png",
+    })
+
+    await withServer(service, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/images/${image.id}/variants/480`
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toContain("image/webp")
+      expect(response.headers.get("cache-control")).toBe(
+        "public, max-age=31536000, immutable"
+      )
+      expect(response.headers.get("etag")).toEqual(expect.any(String))
+      expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0)
+    })
+  })
+
+  it("returns 400 for unsupported image variant widths", async () => {
+    await withServer(service, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/images/missing-image/variants/640`
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({
+        error: "Unsupported image variant width",
+      })
+    })
+  })
+
+  it("returns 404 for missing image variants", async () => {
+    await withServer(service, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/images/missing-image/variants/480`
+      )
+
+      expect(response.status).toBe(404)
+      await expect(response.json()).resolves.toMatchObject({
+        error: "Image not found",
+      })
+    })
+  })
+
+  it("persists generated titles on generation jobs and image records", async () => {
+    const generatedTitle = "Misty Tea Stall"
+    const titledService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...createFakeCodexClient(),
+        async generateTitle() {
+          return generatedTitle
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(titledService)
+    const job = await titledService.createGeneration(topic.id, {
+      rawPrompt: "Morning tea stall in misty hills",
+      aspectRatio: "4:3",
+    })
+
+    expect(job.title).toBe(generatedTitle)
+
+    await titledService.runGenerationJob(job.id)
+    const images = await titledService.listImages(topic.id)
+
+    expect(images[0]).toMatchObject({
+      generationJobId: job.id,
+      title: generatedTitle,
+    })
+  })
+
+  it("uses an explicit generation title before asking Codex for one", async () => {
+    let generateTitleCalled = false
+    const titledService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...createFakeCodexClient(),
+        async generateTitle() {
+          generateTitleCalled = true
+          return "Wrong title"
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(titledService)
+    const job = await titledService.createGeneration(topic.id, {
+      rawPrompt: "A rainy hill station market at dusk",
+      title: "Hill Station Market",
+      aspectRatio: "4:3",
+    })
+
+    expect(job.title).toBe("Hill Station Market")
+    expect(generateTitleCalled).toBe(false)
+  })
+
+  it("uses a clear prompt title prefix before asking Codex for one", async () => {
+    let generateTitleCalled = false
+    const titledService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...createFakeCodexClient(),
+        async generateTitle() {
+          generateTitleCalled = true
+          return "Wrong title"
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(titledService)
+    const job = await titledService.createGeneration(topic.id, {
+      rawPrompt:
+        "Image title: Misty Hills Tea Stall\nMorning tea stall in misty hills",
+      aspectRatio: "4:3",
+    })
+
+    expect(job.title).toBe("Misty Hills Tea Stall")
+    expect(generateTitleCalled).toBe(false)
+  })
+
+  it("falls back to a prompt title when generated title creation fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const resilientService = createFramebookService({
+        store: createFramebookStore({ dataDir }),
+        codexClient: {
+          ...createFakeCodexClient(),
+          async generateTitle() {
+            throw new Error("title model unavailable")
+          },
+        },
+        autoRunJobs: false,
+      })
+      const topic = await createTopic(resilientService)
+      const job = await resilientService.createGeneration(topic.id, {
+        rawPrompt: "A quiet mountain station platform",
+        aspectRatio: "16:9",
+      })
+
+      expect(job.title).toBe("A quiet mountain station platform")
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("title generation failed")
+      )
+
+      const finishedJob = await resilientService.runGenerationJob(job.id)
+      expect(finishedJob.status).toBe("succeeded")
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it("lists active generation jobs for a topic", async () => {
@@ -348,6 +652,7 @@ describe("framebook service", () => {
       prompt: "Final cinematic tea stall prompt",
       rawPrompt: "Morning tea stall",
       aspectRatio: "16:9",
+      resolutionPreset: "2k",
       topic,
       outputPath,
     })
@@ -355,6 +660,7 @@ describe("framebook service", () => {
     expect(prompt).toContain("image creation skill/tool")
     expect(prompt).toContain("Do not create a placeholder")
     expect(prompt).toContain("Aspect ratio: 16:9")
+    expect(prompt).toContain("Output resolution: 2K output resolution")
     expect(prompt).toContain("Morning tea stall")
     expect(prompt).toContain("Final cinematic tea stall prompt")
     expect(prompt).toContain(outputPath)
@@ -365,7 +671,6 @@ describe("framebook service", () => {
     const prompt = buildPromptEnhancementPrompt({
       topic,
       rawPrompt: "A product photo of a ceramic mug",
-      aspectRatio: "1:1",
     })
 
     expect(prompt).toContain("OpenAI GPT image generation models")
@@ -373,7 +678,77 @@ describe("framebook service", () => {
     expect(prompt).toContain("photorealistic")
     expect(prompt).toContain("no watermark")
     expect(prompt).toContain("A product photo of a ceramic mug")
-    expect(prompt).toContain("Aspect ratio: 1:1")
+    expect(prompt).not.toMatch(/aspect ratio|1:1|resolution|quality/iu)
+  })
+
+  it("uses separate codex app-server model and effort per operation", async () => {
+    const topic = await createTopic(service)
+    const sessions = []
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory(options) {
+        sessions.push(options)
+        return {
+          async runTurn({ userText }) {
+            const outputPath = userText.match(
+              /Save the generated PNG image exactly at this absolute path:\n(.+?)\n-/u
+            )?.[1]
+
+            if (outputPath) {
+              await mkdir(path.dirname(outputPath), { recursive: true })
+              await writeFile(outputPath, "png")
+            }
+
+            return {
+              responseText: userText.includes("short display title")
+                ? "Tea Stall Morning"
+                : "Enhanced tea stall prompt",
+            }
+          },
+          stop() {},
+        }
+      },
+    })
+
+    await client.enhancePrompt({
+      topic,
+      rawPrompt: "Morning tea stall",
+    })
+    await client.generateTitle({
+      topic,
+      rawPrompt: "Morning tea stall",
+      enhancedPrompt: "Enhanced morning tea stall",
+    })
+    await client.generateImage({
+      prompt: "Enhanced morning tea stall",
+      rawPrompt: "Morning tea stall",
+      aspectRatio: "16:9",
+      resolutionPreset: "2k",
+      topic,
+      outputDir: path.join(dataDir, "images"),
+      fileName: "image.png",
+    })
+
+    expect(sessions.map(({ model, effort }) => ({ model, effort }))).toEqual([
+      { model: "gpt-5.4-mini", effort: "medium" },
+      { model: "gpt-5.4-mini", effort: "medium" },
+      { model: "gpt-5.5", effort: "medium" },
+    ])
+  })
+
+  it("builds the codex app-server title prompt contract", async () => {
+    const topic = await createTopic(service)
+    const prompt = buildImageTitlePrompt({
+      topic,
+      rawPrompt: "A product photo of a ceramic mug",
+      enhancedPrompt: "Ceramic mug on a warm cafe table.",
+    })
+
+    expect(prompt).toContain("short display title")
+    expect(prompt).toContain("at or below 60 characters")
+    expect(prompt).toContain("A product photo of a ceramic mug")
+    expect(prompt).toContain("Ceramic mug on a warm cafe table.")
   })
 
   it("marks generation jobs failed without losing prompt context", async () => {
@@ -414,6 +789,40 @@ async function createTopic(service) {
       "Two travelers, one small backpack, recurring red scooter, misty hills",
     enhancerMode: "storyboard",
   })
+}
+
+async function writePng(filePath, { width, height }) {
+  await mkdir(path.dirname(filePath), { recursive: true })
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: "#336699",
+    },
+  })
+    .png()
+    .toFile(filePath)
+}
+
+async function withServer(service, callback) {
+  setFramebookServiceForTesting(service)
+  const server = createHttpServer()
+  await new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+
+  try {
+    return await callback(`http://127.0.0.1:${address.port}`)
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+  }
 }
 
 async function waitForJobStatus(service, jobId, status) {

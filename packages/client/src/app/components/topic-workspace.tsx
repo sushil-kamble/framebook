@@ -10,8 +10,14 @@ import {
 } from "lucide-react"
 import { cn } from "@shared/lib/utils"
 import { aspectRatioOptions, resolutionPresetOptions } from "../lib/constants"
-import { formatDate, imageFileUrl } from "../lib/utils"
-import { IconButton } from "./icon-button"
+import {
+  formatDate,
+  imageFileUrl,
+  imageGridSizes,
+  imageSrcSet,
+  imageVariantUrl,
+} from "../lib/utils"
+import { AppBreadcrumb } from "./app-breadcrumb"
 import type {
   AspectRatio,
   GenerationJob,
@@ -35,8 +41,8 @@ import { Textarea } from "@/shared/ui/textarea"
 export function TopicWorkspace(props: {
   topic: TopicSummary
   images: Array<ImageRecord>
-  rawPrompt: string
-  enhancedPrompt: string
+  promptValue: string
+  hasGenerationPrompt: boolean
   selectedAspectRatio: AspectRatio
   selectedResolutionPreset: ResolutionPreset
   favoriteOnly: boolean
@@ -46,7 +52,7 @@ export function TopicWorkspace(props: {
   onBack: () => void
   onEditTopic: () => void
   onArchiveTopic: () => void
-  onRawPromptChange: (value: string) => void
+  onPromptChange: (value: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
   onResolutionPresetChange: (value: ResolutionPreset) => void
   onEnhancePrompt: () => void
@@ -58,35 +64,40 @@ export function TopicWorkspace(props: {
   onDownloadImage: (image: ImageRecord) => Promise<void>
   onFavoriteFilterChange: (value: boolean) => void
 }) {
-  const canGenerate = Boolean(props.rawPrompt.trim())
+  const canGenerate = Boolean(props.promptValue.trim())
   const isGenerating =
     props.job?.status === "queued" || props.job?.status === "running"
 
   return (
     <div className="flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2">
       <header className="flex flex-col gap-2 border-b border-border/60 pb-2 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="mb-1 flex items-center gap-1.5">
-            <button
-              type="button"
-              className="text-[11px] font-medium text-muted-foreground/55 transition hover:text-foreground/70"
-              onClick={props.onBack}
-            >
-              Topics
-            </button>
-            <span className="text-xs text-muted-foreground/35">/</span>
-            <span className="text-sm font-medium text-foreground/80">
-              {props.topic.name}
-            </span>
-          </div>
-        </div>
+        <AppBreadcrumb
+          items={[
+            { label: "Topics", onClick: props.onBack },
+            { label: props.topic.name },
+          ]}
+        />
         <div className="flex flex-wrap gap-1.5">
-          <IconButton label="Topic Settings" onClick={props.onEditTopic}>
-            <Pencil className="size-3.5" />
-          </IconButton>
-          <IconButton label="Archive Topic" onClick={props.onArchiveTopic}>
-            <Archive className="size-3.5" />
-          </IconButton>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="border border-border"
+            onClick={props.onEditTopic}
+          >
+            <Pencil className="size-3.5" data-icon="inline-start" />
+            Edit Topic
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            className="border border-destructive/25"
+            onClick={props.onArchiveTopic}
+          >
+            <Archive className="size-3.5" data-icon="inline-start" />
+            Archive
+          </Button>
         </div>
       </header>
 
@@ -104,14 +115,14 @@ export function TopicWorkspace(props: {
 
         <div className="flex flex-col gap-2">
           <PromptComposer
-            rawPrompt={props.rawPrompt}
-            enhancedPrompt={props.enhancedPrompt}
+            promptValue={props.promptValue}
+            hasGenerationPrompt={props.hasGenerationPrompt}
             selectedAspectRatio={props.selectedAspectRatio}
             selectedResolutionPreset={props.selectedResolutionPreset}
             isEnhancing={props.isEnhancing}
             isGenerating={isGenerating}
             canGenerate={canGenerate}
-            onRawPromptChange={props.onRawPromptChange}
+            onPromptChange={props.onPromptChange}
             onAspectRatioChange={props.onAspectRatioChange}
             onResolutionPresetChange={props.onResolutionPresetChange}
             onEnhancePrompt={props.onEnhancePrompt}
@@ -169,14 +180,14 @@ export function TopicWorkspaceSkeleton() {
 }
 
 function PromptComposer(props: {
-  rawPrompt: string
-  enhancedPrompt: string
+  promptValue: string
+  hasGenerationPrompt: boolean
   selectedAspectRatio: AspectRatio
   selectedResolutionPreset: ResolutionPreset
   isEnhancing: boolean
   isGenerating: boolean
   canGenerate: boolean
-  onRawPromptChange: (value: string) => void
+  onPromptChange: (value: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
   onResolutionPresetChange: (value: ResolutionPreset) => void
   onEnhancePrompt: () => void
@@ -188,7 +199,7 @@ function PromptComposer(props: {
         <label className="sr-only" htmlFor="raw-prompt">
           Prompt
         </label>
-        {props.enhancedPrompt ? (
+        {props.hasGenerationPrompt ? (
           <div className="px-0.5 text-xs text-muted-foreground/60">
             <Badge variant="secondary" className="text-[10px]">
               Enhanced
@@ -198,8 +209,8 @@ function PromptComposer(props: {
         <div className="relative">
           <Textarea
             id="raw-prompt"
-            value={props.rawPrompt}
-            onChange={(event) => props.onRawPromptChange(event.target.value)}
+            value={props.promptValue}
+            onChange={(event) => props.onPromptChange(event.target.value)}
             rows={3}
             className="min-h-18 resize-none border-border/50 bg-background/60 pr-28 pb-13 text-sm"
             placeholder="Describe the image you want to create..."
@@ -327,69 +338,89 @@ function GalleryCanvas(props: {
         ) : null}
 
         {!props.isLoading && (props.images.length > 0 || props.isGenerating) ? (
-          <div className="grid auto-rows-[180px] grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-3 gap-3">
             {props.isGenerating ? <GeneratingImageCard /> : null}
-            {props.images.map((image) => (
-              <article
-                key={image.id}
-                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
-              >
-                <button
-                  type="button"
-                  className="block size-full text-left"
-                  onClick={() => {
-                    props.onPreviewImage(image)
-                  }}
-                  aria-label={`Preview ${image.title}`}
+            {props.images.map((image, index) => {
+              const srcSet = imageSrcSet(image)
+              const highPriorityCount = props.isGenerating ? 2 : 3
+
+              return (
+                <article
+                  key={image.id}
+                  className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
                 >
-                  <img
-                    src={imageFileUrl(image.id)}
-                    alt={image.title}
-                    className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
-                  />
-                </button>
-
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-10">
-                  <div className="line-clamp-1 text-xs font-semibold text-white">
-                    {image.title}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
-                    <span>{image.aspectRatio}</span>
-                    <span>·</span>
-                    <span>{formatDate(image.createdAt)}</span>
-                  </div>
-                </div>
-
-                <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                  <Button
+                  <button
                     type="button"
-                    size="icon-sm"
-                    variant="secondary"
-                    onClick={() => props.onViewImageDetails(image)}
-                    aria-label={`View details for ${image.title}`}
-                    title="View details"
+                    className="block size-full text-left"
+                    onClick={() => {
+                      props.onPreviewImage(image)
+                    }}
+                    aria-label={`Preview ${image.title}`}
                   >
-                    <Info />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="secondary"
-                    onClick={() => props.onToggleFavorite(image)}
-                    aria-label={
-                      image.favorite ? "Remove favorite" : "Mark favorite"
-                    }
-                    title={image.favorite ? "Remove favorite" : "Mark favorite"}
-                  >
-                    <Star
-                      className={cn(
-                        image.favorite ? "fill-ring text-ring" : ""
-                      )}
+                    <img
+                      src={
+                        srcSet
+                          ? imageVariantUrl(image.id, 480)
+                          : imageFileUrl(image.id)
+                      }
+                      srcSet={srcSet}
+                      sizes={imageGridSizes("topic")}
+                      alt={image.title}
+                      width={image.width}
+                      height={image.height}
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority={
+                        index < highPriorityCount ? "high" : undefined
+                      }
+                      className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
                     />
-                  </Button>
-                </div>
-              </article>
-            ))}
+                  </button>
+
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-10">
+                    <div className="line-clamp-1 text-xs font-semibold text-white">
+                      {image.title}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
+                      <span>{image.aspectRatio}</span>
+                      <span>·</span>
+                      <span>{formatDate(image.createdAt)}</span>
+                    </div>
+                  </div>
+
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="secondary"
+                      onClick={() => props.onViewImageDetails(image)}
+                      aria-label={`View details for ${image.title}`}
+                      title="View details"
+                    >
+                      <Info />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="secondary"
+                      onClick={() => props.onToggleFavorite(image)}
+                      aria-label={
+                        image.favorite ? "Remove favorite" : "Mark favorite"
+                      }
+                      title={
+                        image.favorite ? "Remove favorite" : "Mark favorite"
+                      }
+                    >
+                      <Star
+                        className={cn(
+                          image.favorite ? "fill-ring text-ring" : ""
+                        )}
+                      />
+                    </Button>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         ) : null}
       </div>
@@ -400,7 +431,7 @@ function GalleryCanvas(props: {
 function GeneratingImageCard() {
   return (
     <article
-      className="relative overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
+      className="relative aspect-4/3 overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
       aria-label="Generating image"
     >
       <div className="absolute inset-0 framer-grid opacity-10" />
@@ -420,14 +451,11 @@ function GeneratingImageCard() {
 
 function GallerySkeleton() {
   return (
-    <div
-      className="grid auto-rows-[180px] grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
-      aria-label="Loading gallery"
-    >
+    <div className="grid grid-cols-3 gap-3" aria-label="Loading gallery">
       {["first", "second", "third", "fourth", "fifth", "sixth"].map((key) => (
         <div
           key={key}
-          className="overflow-hidden rounded-2xl border border-border/50 bg-muted"
+          className="aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted"
         >
           <Skeleton className="size-full rounded-none" />
         </div>

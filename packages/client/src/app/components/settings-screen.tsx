@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react"
 import { Loader2, Monitor, RotateCcw } from "lucide-react"
 import { framebookApi, framebookApiUrl } from "@shared/api/framebook"
-import { formatDate, modeLabel } from "../lib/utils"
-import type { TopicSummary } from "@framebook/shared/contracts/framebook"
+import { formatDate, imageFileUrl, modeLabel } from "../lib/utils"
+import type {
+  ImageRecord,
+  TopicSummary,
+} from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
 import { Skeleton } from "@/shared/ui/skeleton"
 
 export function SettingsScreen({
+  onUnarchiveImage,
   onUnarchiveTopic,
 }: {
+  onUnarchiveImage: (image: ImageRecord) => Promise<void>
   onUnarchiveTopic: (topic: TopicSummary) => Promise<void>
 }) {
   const [health, setHealth] = useState<{
@@ -18,21 +23,27 @@ export function SettingsScreen({
     codexAppServerCommand?: string
   } | null>(null)
   const [archivedTopics, setArchivedTopics] = useState<Array<TopicSummary>>([])
+  const [archivedImages, setArchivedImages] = useState<Array<ImageRecord>>([])
   const [isLoadingArchivedTopics, setIsLoadingArchivedTopics] = useState(true)
+  const [isLoadingArchivedImages, setIsLoadingArchivedImages] = useState(true)
   const [restoringTopicId, setRestoringTopicId] = useState<string | null>(null)
+  const [restoringImageId, setRestoringImageId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
     async function loadSettings() {
       setIsLoadingArchivedTopics(true)
+      setIsLoadingArchivedImages(true)
       try {
-        const [healthResponse, topicsResponse] = await Promise.all([
-          fetch(framebookApiUrl("/api/health")).then((response) =>
-            response.json()
-          ),
-          framebookApi.listTopics({ includeArchived: true }),
-        ])
+        const [healthResponse, topicsResponse, imagesResponse] =
+          await Promise.all([
+            fetch(framebookApiUrl("/api/health")).then((response) =>
+              response.json()
+            ),
+            framebookApi.listTopics({ includeArchived: true }),
+            framebookApi.listArchivedImages(),
+          ])
 
         if (cancelled) return
 
@@ -42,14 +53,17 @@ export function SettingsScreen({
             Boolean(topic.archivedAt)
           )
         )
+        setArchivedImages(imagesResponse.images)
       } catch {
         // Settings are informational, so the screen falls back instead of blocking.
         if (cancelled) return
         setHealth(null)
         setArchivedTopics([])
+        setArchivedImages([])
       } finally {
         if (!cancelled) {
           setIsLoadingArchivedTopics(false)
+          setIsLoadingArchivedImages(false)
         }
       }
     }
@@ -70,6 +84,18 @@ export function SettingsScreen({
       )
     } finally {
       setRestoringTopicId(null)
+    }
+  }
+
+  const restoreImage = async (image: ImageRecord) => {
+    setRestoringImageId(image.id)
+    try {
+      await onUnarchiveImage(image)
+      setArchivedImages((current) =>
+        current.filter((candidate) => candidate.id !== image.id)
+      )
+    } finally {
+      setRestoringImageId(null)
     }
   }
 
@@ -184,17 +210,18 @@ export function SettingsScreen({
                     <span>{topic.defaultAspectRatio}</span>
                     <span>·</span>
                     <span>{modeLabel(topic.enhancerMode)}</span>
+                    <span>·</span>
+                    <span>
+                      Archived{" "}
+                      <span className="font-medium text-foreground/80">
+                        {topic.archivedAt
+                          ? formatDate(topic.archivedAt)
+                          : "Unknown"}
+                      </span>
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-3 sm:justify-end">
-                  <div className="text-xs text-muted-foreground sm:text-right">
-                    <div className="text-muted-foreground/60">Archived</div>
-                    <div className="mt-0.5 font-medium text-foreground">
-                      {topic.archivedAt
-                        ? formatDate(topic.archivedAt)
-                        : "Unknown"}
-                    </div>
-                  </div>
+                <div className="flex items-center justify-end">
                   <Button
                     type="button"
                     variant="outline"
@@ -214,6 +241,96 @@ export function SettingsScreen({
                   </Button>
                 </div>
               </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
+          <div>
+            <h2 className="font-heading text-sm font-semibold tracking-tight">
+              Archived images
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Archived images stay local and hidden from topic galleries.
+            </p>
+          </div>
+          <span className="rounded-lg border border-border/60 bg-muted px-2.5 py-0.5 text-xs font-semibold">
+            {archivedImages.length}
+          </span>
+        </div>
+
+        {isLoadingArchivedImages ? (
+          <div
+            className="mt-4 grid grid-cols-2 gap-3"
+            aria-label="Loading archived images"
+          >
+            {["first", "second", "third", "fourth"].map((key) => (
+              <div
+                key={key}
+                className="aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted"
+              >
+                <Skeleton className="size-full rounded-none" />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {!isLoadingArchivedImages && archivedImages.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-border/50 p-5 text-sm text-muted-foreground/60">
+            No archived images yet.
+          </div>
+        ) : null}
+
+        {!isLoadingArchivedImages && archivedImages.length > 0 ? (
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            {archivedImages.map((image) => (
+              <article
+                key={image.id}
+                className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm"
+              >
+                <img
+                  src={imageFileUrl(image.id)}
+                  alt={image.title}
+                  className="size-full object-cover"
+                />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
+                  <div className="line-clamp-1 text-xs font-semibold text-white">
+                    {image.title}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
+                    <span className="line-clamp-1">
+                      {image.topicSnapshot.name}
+                    </span>
+                    <span>·</span>
+                    <span>
+                      {image.archivedAt
+                        ? formatDate(image.archivedAt)
+                        : "Unknown"}
+                    </span>
+                  </div>
+                </div>
+                <div className="absolute top-1.5 right-1.5">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={restoringImageId === image.id}
+                    onClick={() => void restoreImage(image)}
+                  >
+                    {restoringImageId === image.id ? (
+                      <Loader2
+                        className="animate-spin"
+                        data-icon="inline-start"
+                      />
+                    ) : (
+                      <RotateCcw data-icon="inline-start" />
+                    )}
+                    Unarchive
+                  </Button>
+                </div>
+              </article>
             ))}
           </div>
         ) : null}

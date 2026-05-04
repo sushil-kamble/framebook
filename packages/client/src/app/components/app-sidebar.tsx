@@ -166,11 +166,9 @@ function ThemeButton({
   return (
     <button
       type="button"
+      data-theme-mode={label.toLowerCase()}
       className={cn(
-        "flex h-9 items-center justify-center gap-1.5 rounded-xl px-2 text-[11px] font-medium transition-all",
-        active
-          ? "bg-primary text-primary-foreground shadow-sm"
-          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        "framebook-theme-button flex h-9 items-center justify-center gap-1.5 rounded-xl px-2 text-[11px] font-medium transition-all"
       )}
       aria-pressed={active}
       title={`${label} mode`}

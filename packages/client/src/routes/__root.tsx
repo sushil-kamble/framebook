@@ -3,6 +3,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 
 import { defaultThemeMode, themeStorageKey } from "../app/lib/theme"
+import { Toaster } from "../shared/ui/sonner"
 import appCss from "../app/styles/index.css?url"
 
 const themeBootstrapScript = `
@@ -67,6 +68,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body suppressHydrationWarning>
         {children}
+        <Toaster richColors />
         <TanStackDevtools
           config={{
             position: "bottom-right",

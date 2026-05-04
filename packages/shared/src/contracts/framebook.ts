@@ -46,6 +46,13 @@ export interface TopicSnapshot {
   enhancerMode: EnhancerMode
 }
 
+export interface ImageVariant {
+  width: number
+  height: number
+  fileName: string
+  mimeType: "image/webp"
+}
+
 export interface ImageRecord {
   id: string
   topicId: string
@@ -61,6 +68,10 @@ export interface ImageRecord {
   archivedAt: string | null
   fileName: string
   mimeType: string
+  width?: number
+  height?: number
+  placeholderColor?: string
+  variants?: Array<ImageVariant>
   createdAt: string
 }
 
@@ -68,6 +79,7 @@ export interface GenerationJob {
   id: string
   topicId: string
   status: GenerationJobStatus
+  title: string
   rawPrompt: string
   enhancedPrompt: string
   finalPrompt: string
@@ -120,6 +132,7 @@ export interface EnhancePromptResponse {
 export interface CreateGenerationRequest {
   rawPrompt: string
   enhancedPrompt?: string
+  title?: string
   aspectRatio?: AspectRatio
   resolutionPreset?: ResolutionPreset
 }

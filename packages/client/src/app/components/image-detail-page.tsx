@@ -1,26 +1,17 @@
-import {
-  Download,
-  Eye,
-  FolderOpen,
-  RotateCcw,
-  Share2,
-  Sparkles,
-  Star,
-} from "lucide-react"
-import { cn } from "@shared/lib/utils"
+import { Copy, Download, Eye, FolderOpen, Share2 } from "lucide-react"
+import { toast } from "sonner"
+import { copyTextToClipboard } from "../lib/share"
 import { formatDate, imageFileUrl, modeLabel } from "../lib/utils"
+import { AppBreadcrumb } from "./app-breadcrumb"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
-import { Separator } from "@/shared/ui/separator"
 import { Skeleton } from "@/shared/ui/skeleton"
 
 export function ImageDetailPage(props: {
   image: ImageRecord | null
   onBack: () => void
-  onToggleFavorite: (image: ImageRecord) => void
-  onReusePrompt: (image: ImageRecord) => void
-  onRegenerate: (image: ImageRecord) => void
+  onTopicsClick: () => void
   onRevealImage: (image: ImageRecord) => Promise<unknown>
   onPreviewImage: (image: ImageRecord) => void
   onDownloadImage: (image: ImageRecord) => Promise<void>
@@ -30,7 +21,10 @@ export function ImageDetailPage(props: {
 
   if (!image) {
     return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      <div
+        className="mx-auto flex max-w-5xl flex-col gap-5"
+        aria-label="Loading image detail"
+      >
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-105 w-full rounded-3xl" />
       </div>
@@ -38,20 +32,16 @@ export function ImageDetailPage(props: {
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5">
-      <header className="flex flex-col gap-3 border-b border-border/60 pb-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="mx-auto flex flex-col gap-5">
+      <header className="flex flex-col gap-3 border-b border-border/60 pb-4">
         <div className="min-w-0">
-          <button
-            type="button"
-            className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
-            onClick={props.onBack}
-          >
-            Images <span className="opacity-40">/</span>{" "}
-            {image.topicSnapshot.name}
-          </button>
-          <h1 className="line-clamp-2 font-heading text-2xl font-bold tracking-tight">
-            {image.title}
-          </h1>
+          <AppBreadcrumb
+            items={[
+              { label: "Topics", onClick: props.onTopicsClick },
+              { label: image.topicSnapshot.name, onClick: props.onBack },
+              { label: image.title },
+            ]}
+          />
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             <Badge variant="secondary">{image.aspectRatio}</Badge>
             <Badge variant={image.favorite ? "default" : "outline"}>
@@ -61,42 +51,11 @@ export function ImageDetailPage(props: {
             <Badge variant="outline">{formatDate(image.createdAt)}</Badge>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => props.onReusePrompt(image)}>
-            <Sparkles data-icon="inline-start" />
-            Reuse
-          </Button>
-          <Button variant="outline" onClick={() => props.onRegenerate(image)}>
-            <RotateCcw data-icon="inline-start" />
-            Regenerate
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => props.onToggleFavorite(image)}
-          >
-            <Star
-              data-icon="inline-start"
-              className={cn(image.favorite ? "fill-ring text-ring" : "")}
-            />
-            Starred
-          </Button>
-        </div>
       </header>
 
-      <section className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.75fr)]">
+      <section className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
-          <button
-            type="button"
-            className="overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-sm transition hover:border-ring/30"
-            onClick={() => props.onPreviewImage(image)}
-          >
-            <img
-              src={imageFileUrl(image.id)}
-              alt={image.title}
-              className="max-h-160 w-full object-contain"
-            />
-          </button>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -130,17 +89,25 @@ export function ImageDetailPage(props: {
               Share
             </Button>
           </div>
+          <button
+            type="button"
+            className="overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-sm transition hover:border-ring/30"
+            onClick={() => props.onPreviewImage(image)}
+          >
+            <img
+              src={imageFileUrl(image.id)}
+              alt={image.title}
+              className="max-h-160 w-full object-contain"
+            />
+          </button>
         </div>
 
         <aside className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-          <PromptBlock label="Raw prompt" value={image.rawPrompt} />
-          <PromptBlock label="Enhanced prompt" value={image.enhancedPrompt} />
-          <PromptBlock label="Final prompt" value={image.finalPrompt} />
-          <Separator />
           <PromptBlock
-            label="Topic instruction snapshot"
-            value={image.topicSnapshot.instruction}
+            label="Image generation prompt"
+            value={image.finalPrompt}
           />
+          <PromptBlock label="User prompt" value={image.rawPrompt} />
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <MetaItem label="Topic" value={image.topicSnapshot.name} />
             <MetaItem label="Aspect ratio" value={image.aspectRatio} />
@@ -158,12 +125,29 @@ export function ImageDetailPage(props: {
 function PromptBlock({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="mb-1.5 text-[10px] font-semibold tracking-widest text-muted-foreground/60 uppercase">
+      <div className="mb-1.5 text-sm font-medium text-muted-foreground">
         {label}
       </div>
-      <p className="rounded-xl border border-border/40 bg-muted/30 p-3 text-sm leading-relaxed text-foreground/80">
-        {value}
-      </p>
+      <div className="relative">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          className="absolute top-2 right-2 bg-background/80"
+          aria-label="Copy"
+          title="Copy"
+          onClick={async () => {
+            const copied = await copyTextToClipboard(value)
+            if (copied) toast.success("Prompt copied")
+            else toast.error("Could not copy")
+          }}
+        >
+          <Copy className="size-3" />
+        </Button>
+        <pre className="overflow-x-auto rounded-xl border border-border/40 bg-muted/30 p-4 pr-12 font-mono text-[13px] leading-6 whitespace-pre-wrap text-foreground/80">
+          {value}
+        </pre>
+      </div>
     </div>
   )
 }

@@ -104,6 +104,9 @@ export function createFramebookApi(
     async listStarredImages() {
       return request<ImageListResponse>("/api/images")
     },
+    async listArchivedImages() {
+      return request<ImageListResponse>("/api/images?archived=true")
+    },
     async enhancePrompt(topicId: string, input: EnhancePromptRequest) {
       return request<EnhancePromptResponse>(
         `/api/topics/${encodeURIComponent(topicId)}/prompt/enhance`,

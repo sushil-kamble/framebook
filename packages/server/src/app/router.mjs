@@ -101,7 +101,10 @@ export async function routeRequest(request, response) {
     }
 
     if (pathname === "/api/images" && request.method === "GET") {
-      const images = await getFramebookService().listStarredImages()
+      const images =
+        url.searchParams.get("archived") === "true"
+          ? await getFramebookService().listArchivedImages()
+          : await getFramebookService().listStarredImages()
       sendJson(response, 200, { images })
       return
     }
@@ -172,6 +175,36 @@ export async function routeRequest(request, response) {
       return
     }
 
+    const imageVariantMatch = pathname.match(
+      /^\/api\/images\/([^/]+)\/variants\/([^/]+)$/u
+    )
+    if (imageVariantMatch && request.method === "GET") {
+      const { filePath, mimeType, etag } =
+        await getFramebookService().getImageVariantFile(
+          decodeURIComponent(imageVariantMatch[1]),
+          parseVariantWidth(imageVariantMatch[2])
+        )
+
+      if (request.headers["if-none-match"] === etag) {
+        response.writeHead(304, {
+          ...corsHeaders(),
+          etag,
+          "cache-control": "public, max-age=31536000, immutable",
+        })
+        response.end()
+        return
+      }
+
+      response.writeHead(200, {
+        ...corsHeaders(),
+        "content-type": mimeType,
+        "cache-control": "public, max-age=31536000, immutable",
+        etag,
+      })
+      createReadStream(filePath).pipe(response)
+      return
+    }
+
     const imageFileMatch = pathname.match(/^\/api\/images\/([^/]+)\/file$/u)
     if (imageFileMatch && request.method === "GET") {
       const { filePath, mimeType } = await getFramebookService().getImageFile(
@@ -228,4 +261,12 @@ function revealPath(filePath) {
   })
   child.unref()
   return true
+}
+
+function parseVariantWidth(value) {
+  if (!/^\d+$/u.test(value)) {
+    return Number.NaN
+  }
+
+  return Number.parseInt(value, 10)
 }
