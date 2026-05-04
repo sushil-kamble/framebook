@@ -21,7 +21,7 @@ export function TopicsScreen({
   onEditTopic: (topic: TopicSummary) => void
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-180 min-w-0 flex-col gap-6">
+    <div className="mx-auto flex w-full min-w-0 flex-col gap-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-heading text-3xl font-bold tracking-tight">
