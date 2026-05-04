@@ -113,6 +113,9 @@ export function FramebookApp({
       (detailImage?.id === currentRouteImageId ? detailImage : null),
     [currentRouteImageId, detailImage, images]
   )
+  const togglePreviewImage = useCallback((image: ImageRecord) => {
+    setPreviewImageId((current) => (current === image.id ? null : image.id))
+  }, [])
   const promptValue =
     promptMode === "generation" ? generationPrompt : userPrompt
   const isLoadingActiveTopic =
@@ -759,9 +762,7 @@ export function FramebookApp({
                 onGenerate={generateCurrentPrompt}
                 onToggleFavorite={toggleFavorite}
                 onRevealImage={(image) => framebookApi.revealImage(image.id)}
-                onPreviewImage={(image) => {
-                  setPreviewImageId(image.id)
-                }}
+                onPreviewImage={togglePreviewImage}
                 onViewImageDetails={openImageDetail}
                 onDownloadImage={downloadImage}
                 onFavoriteFilterChange={setFavoriteOnly}
@@ -773,9 +774,7 @@ export function FramebookApp({
                 images={starredImages}
                 isLoading={isStarredImagesLoading}
                 onToggleFavorite={toggleFavorite}
-                onPreviewImage={(image) => {
-                  setPreviewImageId(image.id)
-                }}
+                onPreviewImage={togglePreviewImage}
                 onViewImageDetails={openImageDetail}
               />
             ) : null}
@@ -808,9 +807,7 @@ export function FramebookApp({
                   )
                 }}
                 onRevealImage={(image) => framebookApi.revealImage(image.id)}
-                onPreviewImage={(image) => {
-                  setPreviewImageId(image.id)
-                }}
+                onPreviewImage={togglePreviewImage}
                 onDownloadImage={downloadImage}
                 onShareImage={shareImage}
               />

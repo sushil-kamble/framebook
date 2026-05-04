@@ -8,6 +8,8 @@ const defaultImageModel = "gpt-5.5"
 const defaultEnhancerModel = "gpt-5.4-mini"
 const defaultTitleModel = "gpt-5.4-mini"
 const defaultEffort = "medium"
+const defaultEnhancerEffort = "low"
+const enhancerServiceTier = "fast"
 const defaultTimeoutMs = 10 * 60 * 1000
 const pngMimeType = "image/png"
 const onePixelPng = Buffer.from(
@@ -23,7 +25,8 @@ export function createCodexClient({ env = process.env } = {}) {
     imageModel: env.FRAMEBOOK_CODEX_IMAGE_MODEL || defaultImageModel,
     imageEffort: env.FRAMEBOOK_CODEX_IMAGE_EFFORT || defaultEffort,
     enhancerModel: env.FRAMEBOOK_CODEX_ENHANCER_MODEL || defaultEnhancerModel,
-    enhancerEffort: env.FRAMEBOOK_CODEX_ENHANCER_EFFORT || defaultEffort,
+    enhancerEffort:
+      env.FRAMEBOOK_CODEX_ENHANCER_EFFORT || defaultEnhancerEffort,
     titleModel: env.FRAMEBOOK_CODEX_TITLE_MODEL || defaultTitleModel,
     titleEffort: env.FRAMEBOOK_CODEX_TITLE_EFFORT || defaultEffort,
     timeoutMs: readPositiveInteger(
@@ -60,13 +63,19 @@ export class CodexAppServerImageClient {
     this.imageModel = options.imageModel || options.model || defaultImageModel
     this.imageEffort = options.imageEffort || options.effort || defaultEffort
     this.enhancerModel = options.enhancerModel || defaultEnhancerModel
-    this.enhancerEffort = options.enhancerEffort || defaultEffort
+    this.enhancerEffort = options.enhancerEffort || defaultEnhancerEffort
+    this.enhancerServiceTier =
+      options.enhancerServiceTier || enhancerServiceTier
     this.titleModel = options.titleModel || defaultTitleModel
     this.titleEffort = options.titleEffort || defaultEffort
     this.timeoutMs = options.timeoutMs || defaultTimeoutMs
     this.sessionFactory =
       options.sessionFactory ||
       ((sessionOptions) => new CodexAppServerSession(sessionOptions))
+    this.enhancerSession = null
+    this.enhancerSessionPromise = null
+    this.enhancerQueue = Promise.resolve()
+    this.closed = false
   }
 
   async generateImage({
@@ -115,33 +124,36 @@ export class CodexAppServerImageClient {
   }
 
   async enhancePrompt({ topic, rawPrompt }) {
-    const appServer = this.createSession({
-      command: this.command,
-      cwd: this.cwd,
-      env: this.env,
-      model: this.enhancerModel,
-      effort: this.enhancerEffort,
-    })
+    const enhancement = this.enhancerQueue.then(
+      () => this.runEnhancerTurn({ topic, rawPrompt }),
+      () => this.runEnhancerTurn({ topic, rawPrompt })
+    )
+    this.enhancerQueue = enhancement.catch(() => {})
 
-    try {
-      const result = await appServer.runTurn({
-        developerInstructions: framebookPromptDeveloperInstructions(),
-        userText: buildPromptEnhancementPrompt({
-          topic,
-          rawPrompt,
-        }),
-        timeoutMs: Math.min(this.timeoutMs, 120_000),
-      })
-      const enhancedPrompt = cleanCodexPromptResponse(result.responseText)
+    return enhancement
+  }
 
-      if (!enhancedPrompt) {
-        throw new Error("Codex App Server did not return an enhanced prompt")
-      }
-
-      return enhancedPrompt
-    } finally {
-      appServer.stop()
+  async prewarmEnhancer() {
+    if (this.closed) {
+      throw new Error("Codex App Server prompt enhancer is closed")
     }
+
+    if (this.enhancerSession) {
+      return this.enhancerSession
+    }
+
+    if (!this.enhancerSessionPromise) {
+      this.enhancerSessionPromise = this.createEnhancerSession()
+        .then((session) => {
+          this.enhancerSession = session
+          return session
+        })
+        .finally(() => {
+          this.enhancerSessionPromise = null
+        })
+    }
+
+    return this.enhancerSessionPromise
   }
 
   async generateTitle({ topic, rawPrompt, enhancedPrompt }) {
@@ -174,16 +186,106 @@ export class CodexAppServerImageClient {
   createSession(options) {
     return this.sessionFactory(options)
   }
+
+  async runEnhancerTurn({ topic, rawPrompt }) {
+    let appServer
+    try {
+      appServer = await this.prewarmEnhancer()
+      const result = await appServer.runTurnOnCurrentThread({
+        userText: buildPromptEnhancementPrompt({
+          topic,
+          rawPrompt,
+        }),
+        timeoutMs: Math.min(this.timeoutMs, 120_000),
+      })
+      const enhancedPrompt = cleanCodexPromptResponse(result.responseText)
+
+      if (!enhancedPrompt) {
+        throw new Error("Codex App Server did not return an enhanced prompt")
+      }
+
+      try {
+        await appServer.rollbackLastTurns({ numTurns: 1 })
+      } catch (error) {
+        this.discardEnhancerSession(appServer)
+        console.warn(
+          `[framebook] prompt enhancer rollback failed after successful turn; next request will create a fresh thread: ${errorMessage(
+            error
+          )}`
+        )
+      }
+
+      return enhancedPrompt
+    } catch (error) {
+      this.discardEnhancerSession(appServer)
+      throw error
+    }
+  }
+
+  async createEnhancerSession() {
+    const appServer = this.createSession({
+      command: this.command,
+      cwd: this.cwd,
+      env: this.env,
+      model: this.enhancerModel,
+      effort: this.enhancerEffort,
+      serviceTier: this.enhancerServiceTier,
+    })
+
+    try {
+      appServer.start()
+      await appServer.initialize()
+      await appServer.startThread({
+        developerInstructions: framebookPromptDeveloperInstructions(),
+      })
+
+      if (this.closed) {
+        throw new Error("Codex App Server prompt enhancer is closed")
+      }
+
+      return appServer
+    } catch (error) {
+      appServer.stop()
+      throw error
+    }
+  }
+
+  discardEnhancerSession(session = this.enhancerSession) {
+    if (session && session === this.enhancerSession) {
+      this.enhancerSession = null
+    }
+
+    session?.stop()
+  }
+
+  async close() {
+    this.closed = true
+    this.discardEnhancerSession()
+
+    if (this.enhancerSessionPromise) {
+      try {
+        const session = await this.enhancerSessionPromise
+        session?.stop()
+      } catch {
+        // Prewarm failures are surfaced to callers that awaited the prewarm.
+      }
+    }
+  }
+
+  async dispose() {
+    await this.close()
+  }
 }
 
 export class CodexAppServerSession extends EventEmitter {
-  constructor({ command, cwd, env, model, effort }) {
+  constructor({ command, cwd, env, model, effort, serviceTier }) {
     super()
     this.command = command
     this.cwd = cwd
     this.env = env
     this.model = model
     this.effort = effort
+    this.serviceTier = serviceTier
     this.nextId = 1
     this.pending = new Map()
     this.threadId = null
@@ -228,6 +330,43 @@ export class CodexAppServerSession extends EventEmitter {
           .then(() => this.startThread({ developerInstructions }))
           .then(() => this.sendUserText(userText))
           .catch(onError)
+      }),
+      timeoutMs,
+      () =>
+        `Codex App Server turn timed out after ${Math.round(timeoutMs / 1000)}s`
+    )
+  }
+
+  async runTurnOnCurrentThread({ userText, timeoutMs }) {
+    return withTimeout(
+      new Promise((resolve, reject) => {
+        const cleanup = () => {
+          this.off("turnCompleted", onCompleted)
+          this.off("sessionError", onError)
+          this.off("exit", onExit)
+        }
+        const onCompleted = (event) => {
+          cleanup()
+          resolve({ ...event, responseText: this.responseText.trim() })
+        }
+        const onError = (event) => {
+          cleanup()
+          reject(new Error(event.message))
+        }
+        const onExit = ({ code, signal }) => {
+          cleanup()
+          reject(
+            new Error(
+              `Codex App Server exited before completing the turn (${code ?? signal})`
+            )
+          )
+        }
+
+        this.on("turnCompleted", onCompleted)
+        this.on("sessionError", onError)
+        this.on("exit", onExit)
+
+        this.sendUserText(userText).catch(onError)
       }),
       timeoutMs,
       () =>
@@ -287,16 +426,25 @@ export class CodexAppServerSession extends EventEmitter {
     this.notify("initialized", {})
   }
 
-  async startThread({ developerInstructions }) {
-    const result = await this.request("thread/start", {
+  async startThread({ developerInstructions, ephemeral = false }) {
+    const params = {
       cwd: this.cwd,
       model: this.model,
       approvalPolicy: "never",
       sandbox: "danger-full-access",
       developerInstructions,
       experimentalRawEvents: false,
-      persistExtendedHistory: false,
-    })
+    }
+
+    if (this.serviceTier) {
+      params.serviceTier = this.serviceTier
+    }
+
+    if (ephemeral) {
+      params.ephemeral = true
+    }
+
+    const result = await this.request("thread/start", params)
     this.threadId = result?.thread?.id ?? this.threadId
     return this.threadId
   }
@@ -306,11 +454,28 @@ export class CodexAppServerSession extends EventEmitter {
       throw new Error("Codex App Server thread was not started")
     }
 
-    return this.request("turn/start", {
+    const params = {
       threadId: this.threadId,
       input: [{ type: "text", text, text_elements: [] }],
       model: this.model,
       effort: this.effort,
+    }
+
+    if (this.serviceTier) {
+      params.serviceTier = this.serviceTier
+    }
+
+    return this.request("turn/start", params)
+  }
+
+  async rollbackLastTurns({ numTurns }) {
+    if (!this.threadId) {
+      throw new Error("Codex App Server thread was not started")
+    }
+
+    return this.request("thread/rollback", {
+      threadId: this.threadId,
+      numTurns,
     })
   }
 
@@ -606,6 +771,10 @@ function ensurePngFileName(fileName) {
 function readPositiveInteger(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ""), 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 async function waitForFile(filePath, timeoutMs) {

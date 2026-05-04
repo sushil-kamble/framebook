@@ -25,6 +25,7 @@ export function ImagePreviewDialog(props: {
   onArchiveImage: (image: ImageRecord) => Promise<void>
 }) {
   const image = props.image
+  const { onClose } = props
   const [imageResolution, setImageResolution] = useState<{
     width: number
     height: number
@@ -33,6 +34,26 @@ export function ImagePreviewDialog(props: {
   useEffect(() => {
     setImageResolution(null)
   }, [image?.id])
+
+  useEffect(() => {
+    if (!image) return
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        event.key.toLowerCase() !== "v"
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      onClose()
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [image, onClose])
 
   if (!image) {
     return null
@@ -49,6 +70,7 @@ export function ImagePreviewDialog(props: {
     >
       <DialogContent
         className="aspect-video max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-none gap-0 overflow-hidden rounded-lg border border-white/10 bg-black p-0 text-white shadow-none sm:w-[min(96vw,1560px)] sm:max-w-[min(96vw,1560px)]"
+        data-framebook-preview-dialog="true"
         showCloseButton={false}
       >
         <DialogTitle className="sr-only">{image.title}</DialogTitle>

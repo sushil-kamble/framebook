@@ -45,6 +45,8 @@ describe("settings screen", () => {
     expect(screen.getByLabelText("Breadcrumb").textContent).toContain(
       "Settings"
     )
+    expect(screen.getByText("Image preview shortcut")).toBeTruthy()
+    expect(screen.getByText("V")).toBeTruthy()
     expect(await screen.findByText("/tmp/framebook")).toBeTruthy()
   })
 })

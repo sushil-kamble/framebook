@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { ImageDetailPage } from "../src/app/components/image-detail-page"
 import { ImagePreviewDialog } from "../src/app/components/image-preview-dialog"
@@ -10,13 +11,15 @@ import type {
 } from "@framebook/shared/contracts/framebook"
 
 describe("optimized image grids", () => {
-  it("renders starred cards with responsive variant image attributes", () => {
+  it("renders starred cards with responsive variant image attributes", async () => {
+    const onPreviewImage = vi.fn()
+
     render(
       <StarredScreen
         images={[imageRecord]}
         isLoading={false}
         onToggleFavorite={vi.fn()}
-        onPreviewImage={vi.fn()}
+        onPreviewImage={onPreviewImage}
         onViewImageDetails={vi.fn()}
       />
     )
@@ -35,9 +38,18 @@ describe("optimized image grids", () => {
     expect(image.getAttribute("width")).toBe("1200")
     expect(image.getAttribute("height")).toBe("900")
     expect(image.getAttribute("fetchpriority")).toBe("high")
+
+    fireEvent.mouseEnter(image.closest("article")!)
+    fireEvent.keyDown(window, { key: "v" })
+
+    await waitFor(() =>
+      expect(onPreviewImage).toHaveBeenCalledWith(imageRecord)
+    )
   })
 
-  it("renders topic cards with responsive variant image attributes", () => {
+  it("renders topic cards with responsive variant image attributes", async () => {
+    const onPreviewImage = vi.fn()
+
     render(
       <TopicWorkspace
         topic={topicSummary}
@@ -59,7 +71,7 @@ describe("optimized image grids", () => {
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
         onRevealImage={vi.fn()}
-        onPreviewImage={vi.fn()}
+        onPreviewImage={onPreviewImage}
         onViewImageDetails={vi.fn()}
         onDownloadImage={vi.fn()}
         onFavoriteFilterChange={vi.fn()}
@@ -80,16 +92,55 @@ describe("optimized image grids", () => {
     expect(image.getAttribute("width")).toBe("1200")
     expect(image.getAttribute("height")).toBe("900")
     expect(image.getAttribute("fetchpriority")).toBe("high")
+
+    fireEvent.mouseEnter(image.closest("article")!)
+    fireEvent.keyDown(window, { key: "v" })
+
+    await waitFor(() =>
+      expect(onPreviewImage).toHaveBeenCalledWith(imageRecord)
+    )
   })
 
-  it("keeps detail and preview views on the original image URL", () => {
+  it("reopens the same hovered image when v is pressed after closing preview", async () => {
+    render(<PreviewToggleHarness />)
+
+    const image = screen.getByRole("img", { name: imageRecord.title })
+
+    fireEvent.mouseEnter(image.closest("article")!)
+    fireEvent.keyDown(window, { key: "v" })
+
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-framebook-preview-dialog='true']")
+      ).toBeTruthy()
+    })
+
+    fireEvent.keyDown(window, { key: "v" })
+
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-framebook-preview-dialog='true']")
+      ).toBeNull()
+    })
+
+    fireEvent.keyDown(window, { key: "v" })
+
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-framebook-preview-dialog='true']")
+      ).toBeTruthy()
+    })
+  })
+
+  it("keeps detail and preview views on the original image URL", async () => {
+    const onPreviewImage = vi.fn()
     const { container: detailContainer, unmount } = render(
       <ImageDetailPage
         image={imageRecord}
         onBack={vi.fn()}
         onTopicsClick={vi.fn()}
         onRevealImage={vi.fn()}
-        onPreviewImage={vi.fn()}
+        onPreviewImage={onPreviewImage}
         onDownloadImage={vi.fn()}
         onShareImage={vi.fn()}
       />
@@ -104,12 +155,23 @@ describe("optimized image grids", () => {
     expect(screen.getByText("Image generation prompt")).toBeTruthy()
     expect(screen.queryByText("User prompt")).toBeNull()
     expect(screen.queryByText(imageRecord.rawPrompt)).toBeNull()
+
+    fireEvent.mouseEnter(
+      detailContainer.querySelector("img")!.closest("button")!
+    )
+    fireEvent.keyDown(window, { key: "v" })
+
+    await waitFor(() =>
+      expect(onPreviewImage).toHaveBeenCalledWith(imageRecord)
+    )
     unmount()
+
+    const onClosePreview = vi.fn()
 
     render(
       <ImagePreviewDialog
         image={imageRecord}
-        onClose={vi.fn()}
+        onClose={onClosePreview}
         onDownloadImage={vi.fn()}
         onRevealImage={vi.fn()}
         onShareImage={vi.fn()}
@@ -123,8 +185,58 @@ describe("optimized image grids", () => {
       "/api/images/image-1/file"
     )
     expect(previewImage.hasAttribute("srcset")).toBe(false)
+
+    fireEvent.keyDown(window, { key: "v" })
+
+    expect(onClosePreview).toHaveBeenCalledOnce()
   })
 })
+
+function PreviewToggleHarness() {
+  const [previewImage, setPreviewImage] = useState<ImageRecord | null>(null)
+
+  const togglePreviewImage = (image: ImageRecord) => {
+    setPreviewImage((current) => (current?.id === image.id ? null : image))
+  }
+
+  return (
+    <>
+      <TopicWorkspace
+        topic={topicSummary}
+        images={[imageRecord]}
+        promptValue=""
+        selectedAspectRatio="4:3"
+        selectedResolutionPreset="1k"
+        favoriteOnly={false}
+        job={null}
+        isEnhancing={false}
+        isLoadingImages={false}
+        onBack={vi.fn()}
+        onEditTopic={vi.fn()}
+        onArchiveTopic={vi.fn()}
+        onPromptChange={vi.fn()}
+        onAspectRatioChange={vi.fn()}
+        onResolutionPresetChange={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onGenerate={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={togglePreviewImage}
+        onViewImageDetails={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onFavoriteFilterChange={vi.fn()}
+      />
+      <ImagePreviewDialog
+        image={previewImage}
+        onClose={() => setPreviewImage(null)}
+        onDownloadImage={vi.fn()}
+        onRevealImage={vi.fn()}
+        onShareImage={vi.fn()}
+        onArchiveImage={vi.fn()}
+      />
+    </>
+  )
+}
 
 const topicSummary: TopicSummary = {
   id: "topic-1",

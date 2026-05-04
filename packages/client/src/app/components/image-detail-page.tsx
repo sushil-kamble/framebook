@@ -7,6 +7,7 @@ import {
   Share2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { copyTextToClipboard } from "../lib/share"
 import { formatDate, imageFileUrl, modeLabel } from "../lib/utils"
 import { AppBreadcrumb } from "./app-breadcrumb"
@@ -90,17 +91,10 @@ export function ImageDetailPage(props: {
               </Button>
             </div>
           </div>
-          <button
-            type="button"
-            className="overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-sm transition hover:border-ring/30"
-            onClick={() => props.onPreviewImage(image)}
-          >
-            <img
-              src={imageFileUrl(image.id)}
-              alt={image.title}
-              className="max-h-160 w-full object-contain"
-            />
-          </button>
+          <DetailPreviewImage
+            image={image}
+            onPreviewImage={props.onPreviewImage}
+          />
         </div>
 
         <aside className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
@@ -119,6 +113,30 @@ export function ImageDetailPage(props: {
         </aside>
       </section>
     </div>
+  )
+}
+
+function DetailPreviewImage(props: {
+  image: ImageRecord
+  onPreviewImage: (image: ImageRecord) => void
+}) {
+  const previewShortcut = useHoverPreviewShortcut(() =>
+    props.onPreviewImage(props.image)
+  )
+
+  return (
+    <button
+      type="button"
+      className="overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-sm transition hover:border-ring/30"
+      onClick={() => props.onPreviewImage(props.image)}
+      {...previewShortcut}
+    >
+      <img
+        src={imageFileUrl(props.image.id)}
+        alt={props.image.title}
+        className="max-h-160 w-full object-contain"
+      />
+    </button>
   )
 }
 
@@ -193,7 +211,7 @@ function ImageDetailSkeleton() {
             </div>
           </div>
 
-            {/* Image */}
+          {/* Image */}
           <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-sm">
             <Skeleton className="h-105 w-full rounded-none" />
           </div>

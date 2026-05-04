@@ -165,6 +165,23 @@ export function SettingsScreen({
           </div>
 
           <section className="mt-5 border-t border-border/40 pt-5">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-border/50 bg-muted/30 px-4 py-3 text-sm">
+              <div>
+                <h2 className="font-heading text-sm font-semibold tracking-tight">
+                  Image preview shortcut
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Hover a previewable image thumbnail, then press{" "}
+                  <kbd className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] font-semibold text-foreground">
+                    V
+                  </kbd>{" "}
+                  to open the preview.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-5 border-t border-border/40 pt-5">
             <div className="flex items-center justify-between gap-3 border-b border-border/40 pb-4">
               <div>
                 <h2 className="font-heading text-sm font-semibold tracking-tight">

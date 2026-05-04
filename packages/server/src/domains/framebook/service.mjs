@@ -23,6 +23,7 @@ export function createFramebookService({
   autoRunJobs = true,
 } = {}) {
   const jobRunners = new Map()
+  prewarmPromptEnhancer(codexClient)
 
   async function listTopics({ includeArchived = false } = {}) {
     const [topics, images] = await Promise.all([
@@ -672,7 +673,36 @@ export function createFramebookService({
     listGenerationJobs,
     getGenerationJob,
     runGenerationJob,
+    async close() {
+      if (typeof codexClient.close === "function") {
+        await codexClient.close()
+      } else if (typeof codexClient.dispose === "function") {
+        await codexClient.dispose()
+      }
+
+      store.close?.()
+    },
   }
+}
+
+function prewarmPromptEnhancer(codexClient) {
+  if (typeof codexClient.prewarmEnhancer !== "function") {
+    return
+  }
+
+  void Promise.resolve()
+    .then(() => codexClient.prewarmEnhancer())
+    .catch((error) => {
+      console.warn(
+        `[framebook] prompt enhancer prewarm failed; the next Enhance request will retry: ${errorMessage(
+          error
+        )}`
+      )
+    })
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function hasCompleteOptimization(image) {

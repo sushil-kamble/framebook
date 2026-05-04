@@ -7,6 +7,7 @@ import {
   imageSrcSet,
   imageVariantUrl,
 } from "../lib/utils"
+import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
 import { Skeleton } from "@/shared/ui/skeleton"
@@ -55,86 +56,102 @@ export function StarredScreen({
       {!isLoading && images.length > 0 ? (
         <div className="grid grid-cols-2 gap-3">
           {images.map((image, index) => {
-            const srcSet = imageSrcSet(image)
-
             return (
-              <article
+              <StarredImageCard
                 key={image.id}
-                className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
-              >
-                <button
-                  type="button"
-                  className="block size-full text-left"
-                  onClick={() => onViewImageDetails(image)}
-                  aria-label={`View details for ${image.title}`}
-                >
-                  <img
-                    src={
-                      srcSet
-                        ? imageVariantUrl(image.id, 480)
-                        : imageFileUrl(image.id)
-                    }
-                    srcSet={srcSet}
-                    sizes={imageGridSizes("starred")}
-                    alt={image.title}
-                    width={image.width}
-                    height={image.height}
-                    loading="lazy"
-                    decoding="async"
-                    fetchPriority={index < 2 ? "high" : undefined}
-                    className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
-                  />
-                </button>
-
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
-                  <div className="line-clamp-1 text-xs font-semibold text-white">
-                    {image.title}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
-                    <span className="line-clamp-1">
-                      {image.topicSnapshot.name}
-                    </span>
-                    <span>·</span>
-                    <span>{formatDate(image.createdAt)}</span>
-                  </div>
-                </div>
-
-                <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="secondary"
-                    onClick={() => onPreviewImage(image)}
-                    aria-label={`Preview ${image.title}`}
-                    title="Preview"
-                  >
-                    <Eye />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="secondary"
-                    onClick={() => onToggleFavorite(image)}
-                    aria-label={
-                      image.favorite ? "Remove from starred" : "Star image"
-                    }
-                    title={
-                      image.favorite ? "Remove from starred" : "Star image"
-                    }
-                  >
-                    <Star
-                      className={cn(
-                        image.favorite ? "fill-ring text-ring" : ""
-                      )}
-                    />
-                  </Button>
-                </div>
-              </article>
+                image={image}
+                fetchPriority={index < 2 ? "high" : undefined}
+                onPreviewImage={onPreviewImage}
+                onToggleFavorite={onToggleFavorite}
+                onViewImageDetails={onViewImageDetails}
+              />
             )
           })}
         </div>
       ) : null}
     </div>
+  )
+}
+
+function StarredImageCard(props: {
+  image: ImageRecord
+  fetchPriority: "high" | undefined
+  onToggleFavorite: (image: ImageRecord) => void
+  onPreviewImage: (image: ImageRecord) => void
+  onViewImageDetails: (image: ImageRecord) => void
+}) {
+  const srcSet = imageSrcSet(props.image)
+  const previewShortcut = useHoverPreviewShortcut(() =>
+    props.onPreviewImage(props.image)
+  )
+
+  return (
+    <article
+      className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
+      {...previewShortcut}
+    >
+      <button
+        type="button"
+        className="block size-full text-left"
+        onClick={() => props.onViewImageDetails(props.image)}
+        aria-label={`View details for ${props.image.title}`}
+      >
+        <img
+          src={
+            srcSet
+              ? imageVariantUrl(props.image.id, 480)
+              : imageFileUrl(props.image.id)
+          }
+          srcSet={srcSet}
+          sizes={imageGridSizes("starred")}
+          alt={props.image.title}
+          width={props.image.width}
+          height={props.image.height}
+          loading="lazy"
+          decoding="async"
+          fetchPriority={props.fetchPriority}
+          className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
+        />
+      </button>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
+        <div className="line-clamp-1 text-xs font-semibold text-white">
+          {props.image.title}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
+          <span className="line-clamp-1">{props.image.topicSnapshot.name}</span>
+          <span>·</span>
+          <span>{formatDate(props.image.createdAt)}</span>
+        </div>
+      </div>
+
+      <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="secondary"
+          onClick={() => props.onPreviewImage(props.image)}
+          aria-label={`Preview ${props.image.title}`}
+          title="Preview"
+        >
+          <Eye />
+        </Button>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="secondary"
+          onClick={() => props.onToggleFavorite(props.image)}
+          aria-label={
+            props.image.favorite ? "Remove from starred" : "Star image"
+          }
+          title={props.image.favorite ? "Remove from starred" : "Star image"}
+        >
+          <Star
+            className={cn(props.image.favorite ? "fill-ring text-ring" : "")}
+          />
+        </Button>
+      </div>
+    </article>
   )
 }
 

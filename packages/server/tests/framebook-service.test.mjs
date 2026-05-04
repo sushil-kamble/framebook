@@ -13,6 +13,7 @@ import {
   buildImageGenerationPrompt,
   buildPromptEnhancementPrompt,
   CodexAppServerImageClient,
+  CodexAppServerSession,
   createFakeCodexClient,
 } from "../src/infrastructure/agent-clients/codex.mjs"
 
@@ -691,52 +692,260 @@ describe("framebook service", () => {
       timeoutMs: 1_000,
       sessionFactory(options) {
         sessions.push(options)
-        return {
-          async runTurn({ userText }) {
-            const outputPath = userText.match(
-              /Save the generated PNG image exactly at this absolute path:\n(.+?)\n-/u
-            )?.[1]
-
-            if (outputPath) {
-              await mkdir(path.dirname(outputPath), { recursive: true })
-              await writeFile(outputPath, "png")
-            }
-
-            return {
-              responseText: userText.includes("short display title")
-                ? "Tea Stall Morning"
-                : "Enhanced tea stall prompt",
-            }
-          },
-          stop() {},
-        }
+        return createTestCodexSession()
       },
     })
 
-    await client.enhancePrompt({
-      topic,
-      rawPrompt: "Morning tea stall",
+    try {
+      await client.enhancePrompt({
+        topic,
+        rawPrompt: "Morning tea stall",
+      })
+      await client.generateTitle({
+        topic,
+        rawPrompt: "Morning tea stall",
+        enhancedPrompt: "Enhanced morning tea stall",
+      })
+      await client.generateImage({
+        prompt: "Enhanced morning tea stall",
+        rawPrompt: "Morning tea stall",
+        aspectRatio: "16:9",
+        resolutionPreset: "2k",
+        topic,
+        outputDir: path.join(dataDir, "images"),
+        fileName: "image.png",
+      })
+
+      expect(
+        sessions.map(({ model, effort, serviceTier }) => ({
+          model,
+          effort,
+          serviceTier,
+        }))
+      ).toEqual([
+        { model: "gpt-5.4-mini", effort: "low", serviceTier: "fast" },
+        { model: "gpt-5.4-mini", effort: "medium", serviceTier: undefined },
+        { model: "gpt-5.5", effort: "medium", serviceTier: undefined },
+      ])
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("passes service tier through rollback-compatible codex app-server thread and turn requests", async () => {
+    const requests = []
+    const session = new CodexAppServerSession({
+      command: "codex",
+      cwd: dataDir,
+      env: process.env,
+      model: "gpt-5.4-mini",
+      effort: "low",
+      serviceTier: "fast",
     })
-    await client.generateTitle({
-      topic,
-      rawPrompt: "Morning tea stall",
-      enhancedPrompt: "Enhanced morning tea stall",
+    session.request = async (method, params) => {
+      requests.push({ method, params })
+
+      if (method === "thread/start") {
+        return { thread: { id: "thread-1" } }
+      }
+
+      return {}
+    }
+
+    await session.startThread({
+      developerInstructions: "Return enhanced prompts only.",
     })
-    await client.generateImage({
-      prompt: "Enhanced morning tea stall",
-      rawPrompt: "Morning tea stall",
-      aspectRatio: "16:9",
-      resolutionPreset: "2k",
-      topic,
-      outputDir: path.join(dataDir, "images"),
-      fileName: "image.png",
+    await session.sendUserText("Enhance this prompt")
+
+    expect(requests[0].params).not.toHaveProperty("ephemeral")
+    expect(requests[0].params).not.toHaveProperty("persistExtendedHistory")
+    expect(requests).toEqual([
+      {
+        method: "thread/start",
+        params: expect.objectContaining({
+          developerInstructions: "Return enhanced prompts only.",
+          serviceTier: "fast",
+        }),
+      },
+      {
+        method: "turn/start",
+        params: expect.objectContaining({
+          effort: "low",
+          model: "gpt-5.4-mini",
+          serviceTier: "fast",
+          threadId: "thread-1",
+        }),
+      },
+    ])
+  })
+
+  it("reuses one warm codex app-server thread for sequential prompt enhancement", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmEnhancerSessionFactory({
+      responses: ["Enhanced first prompt", "Enhanced second prompt"],
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
     })
 
-    expect(sessions.map(({ model, effort }) => ({ model, effort }))).toEqual([
-      { model: "gpt-5.4-mini", effort: "medium" },
-      { model: "gpt-5.4-mini", effort: "medium" },
-      { model: "gpt-5.5", effort: "medium" },
-    ])
+    try {
+      await expect(
+        client.enhancePrompt({ topic, rawPrompt: "first prompt" })
+      ).resolves.toBe("Enhanced first prompt")
+      await expect(
+        client.enhancePrompt({ topic, rawPrompt: "second prompt" })
+      ).resolves.toBe("Enhanced second prompt")
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].startCalls).toBe(1)
+      expect(sessions[0].initializeCalls).toBe(1)
+      expect(sessions[0].threadStartCalls).toHaveLength(1)
+      expect(sessions[0].threadStartCalls[0]).not.toHaveProperty("ephemeral")
+      expect(sessions[0].turnInputs).toHaveLength(2)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("serializes concurrent prompt enhancement calls through the warm thread", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmEnhancerSessionFactory({
+      responses: ["Enhanced first prompt", "Enhanced second prompt"],
+      turnDelayMs: 20,
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        Promise.all([
+          client.enhancePrompt({ topic, rawPrompt: "first prompt" }),
+          client.enhancePrompt({ topic, rawPrompt: "second prompt" }),
+        ])
+      ).resolves.toEqual(["Enhanced first prompt", "Enhanced second prompt"])
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].maxActiveTurns).toBe(1)
+      expect(sessions[0].turnInputs).toHaveLength(2)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("discards a failed warm enhancer session and recreates it on the next prompt enhancement", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmEnhancerSessionFactory({
+      responses: ["Unused failed prompt", "Recovered prompt"],
+      failTurnIndexes: new Set([0]),
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        client.enhancePrompt({ topic, rawPrompt: "first prompt" })
+      ).rejects.toThrow("enhancer turn 0 failed")
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].stopped).toBe(true)
+
+      await expect(
+        client.enhancePrompt({ topic, rawPrompt: "second prompt" })
+      ).resolves.toBe("Recovered prompt")
+      expect(sessions).toHaveLength(2)
+      expect(sessions[1].turnInputs).toHaveLength(1)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("rolls back one turn after each successful prompt enhancement", async () => {
+    const topic = await createTopic(service)
+    const { sessionFactory, sessions } = createWarmEnhancerSessionFactory({
+      responses: ["Enhanced first prompt", "Enhanced second prompt"],
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await client.enhancePrompt({ topic, rawPrompt: "first prompt" })
+      await client.enhancePrompt({ topic, rawPrompt: "second prompt" })
+
+      expect(sessions[0].rollbackCalls).toEqual([
+        { numTurns: 1 },
+        { numTurns: 1 },
+      ])
+    } finally {
+      await client.close()
+    }
+  })
+
+  it("keeps a successful enhanced prompt but discards the warm session when rollback fails", async () => {
+    const topic = await createTopic(service)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const { sessionFactory, sessions } = createWarmEnhancerSessionFactory({
+      responses: ["Enhanced first prompt"],
+      failRollbackIndexes: new Set([0]),
+    })
+    const client = new CodexAppServerImageClient({
+      cwd: dataDir,
+      timeoutMs: 1_000,
+      sessionFactory,
+    })
+
+    try {
+      await expect(
+        client.enhancePrompt({ topic, rawPrompt: "first prompt" })
+      ).resolves.toBe("Enhanced first prompt")
+
+      expect(sessions[0].rollbackCalls).toEqual([{ numTurns: 1 }])
+      expect(sessions[0].stopped).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("prompt enhancer rollback failed")
+      )
+    } finally {
+      warn.mockRestore()
+      await client.close()
+    }
+  })
+
+  it("closes the codex client with the Framebook service", async () => {
+    const close = vi.fn()
+    const cleanupService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: { close },
+      autoRunJobs: false,
+    })
+
+    await cleanupService.close()
+
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("prewarms the prompt enhancer when the Framebook service is created", async () => {
+    const prewarmEnhancer = vi.fn().mockResolvedValue(undefined)
+    const startupService = createFramebookService({
+      store: createFramebookStore({ dataDir: path.join(dataDir, "startup") }),
+      codexClient: {
+        prewarmEnhancer,
+      },
+      autoRunJobs: false,
+    })
+
+    await Promise.resolve()
+    await startupService.close()
+
+    expect(prewarmEnhancer).toHaveBeenCalledOnce()
   })
 
   it("builds the codex app-server title prompt contract", async () => {
@@ -779,6 +988,117 @@ describe("framebook service", () => {
     expect(await failingService.listImages(topic.id)).toHaveLength(0)
   })
 })
+
+function createTestCodexSession() {
+  return {
+    start() {},
+    async initialize() {},
+    async startThread() {
+      return "test-thread"
+    },
+    async runTurnOnCurrentThread() {
+      return { responseText: "Enhanced tea stall prompt" }
+    },
+    async rollbackLastTurns() {},
+    async runTurn({ userText }) {
+      const outputPath = userText.match(
+        /Save the generated PNG image exactly at this absolute path:\n(.+?)\n-/u
+      )?.[1]
+
+      if (outputPath) {
+        await mkdir(path.dirname(outputPath), { recursive: true })
+        await writeFile(outputPath, "png")
+      }
+
+      return {
+        responseText: userText.includes("short display title")
+          ? "Tea Stall Morning"
+          : "Enhanced tea stall prompt",
+      }
+    },
+    stop() {},
+  }
+}
+
+function createWarmEnhancerSessionFactory({
+  responses = [],
+  failTurnIndexes = new Set(),
+  failRollbackIndexes = new Set(),
+  turnDelayMs = 0,
+} = {}) {
+  const sessions = []
+  let nextSessionId = 1
+  let nextTurnIndex = 0
+  let nextRollbackIndex = 0
+
+  return {
+    sessions,
+    sessionFactory(options) {
+      const session = {
+        id: nextSessionId,
+        options,
+        activeTurns: 0,
+        initializeCalls: 0,
+        maxActiveTurns: 0,
+        rollbackCalls: [],
+        startCalls: 0,
+        stopped: false,
+        threadStartCalls: [],
+        turnInputs: [],
+        start() {
+          this.startCalls += 1
+        },
+        async initialize() {
+          this.initializeCalls += 1
+        },
+        async startThread(input) {
+          this.threadStartCalls.push(input)
+          return `thread-${this.id}`
+        },
+        async runTurnOnCurrentThread({ userText }) {
+          const turnIndex = nextTurnIndex
+          nextTurnIndex += 1
+          this.turnInputs.push(userText)
+          this.activeTurns += 1
+          this.maxActiveTurns = Math.max(this.maxActiveTurns, this.activeTurns)
+
+          try {
+            if (turnDelayMs > 0) {
+              await sleep(turnDelayMs)
+            }
+
+            if (failTurnIndexes.has(turnIndex)) {
+              throw new Error(`enhancer turn ${turnIndex} failed`)
+            }
+
+            return {
+              responseText:
+                responses[turnIndex] ?? `Enhanced prompt ${turnIndex}`,
+            }
+          } finally {
+            this.activeTurns -= 1
+          }
+        },
+        async rollbackLastTurns(input) {
+          const rollbackIndex = nextRollbackIndex
+          nextRollbackIndex += 1
+          this.rollbackCalls.push(input)
+
+          if (failRollbackIndexes.has(rollbackIndex)) {
+            throw new Error(`rollback ${rollbackIndex} failed`)
+          }
+        },
+        stop() {
+          this.stopped = true
+        },
+      }
+
+      nextSessionId += 1
+      sessions.push(session)
+      return session
+    },
+  }
+}
 
 async function createTopic(service) {
   return service.createTopic({

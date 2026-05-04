@@ -249,6 +249,12 @@ export function setFramebookServiceForTesting(service) {
   framebookService = service
 }
 
+export async function closeFramebookService() {
+  const service = framebookService
+  framebookService = undefined
+  await service?.close?.()
+}
+
 function revealPath(filePath) {
   if (process.env.FRAMEBOOK_DISABLE_REVEAL === "1") {
     return false
