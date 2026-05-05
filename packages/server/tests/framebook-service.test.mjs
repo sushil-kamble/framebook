@@ -335,7 +335,6 @@ describe("framebook service", () => {
       "A red train crossing a stone viaduct in the Swiss Alps"
     )
     expect(job.finalPrompt).toContain("Aspect ratio: 16:9")
-    expect(job.finalPrompt).toContain("Output resolution: 1K")
 
     const finishedJob = await service.runGenerationJob(job.id)
     expect(finishedJob.status).toBe("succeeded")
@@ -832,7 +831,6 @@ describe("framebook service", () => {
       prompt: "Final cinematic tea stall prompt",
       rawPrompt: "Morning tea stall",
       aspectRatio: "16:9",
-      resolutionPreset: "2k",
       topic,
       outputPath,
     })
@@ -840,7 +838,6 @@ describe("framebook service", () => {
     expect(prompt).toContain("image creation skill/tool")
     expect(prompt).toContain("Do not create a placeholder")
     expect(prompt).toContain("Aspect ratio: 16:9")
-    expect(prompt).toContain("Output resolution: 2K output resolution")
     expect(prompt).toContain("Morning tea stall")
     expect(prompt).toContain("Final cinematic tea stall prompt")
     expect(prompt).toContain(outputPath)
@@ -858,7 +855,6 @@ describe("framebook service", () => {
       prompt: "Change the t-shirt color but preserve the face.",
       rawPrompt: "Change the t-shirt color",
       aspectRatio: "4:3",
-      resolutionPreset: "1k",
       topic,
       referenceImages: [
         {
@@ -918,7 +914,6 @@ describe("framebook service", () => {
         prompt: "Enhanced morning tea stall",
         rawPrompt: "Morning tea stall",
         aspectRatio: "16:9",
-        resolutionPreset: "2k",
         topic,
         outputDir: path.join(dataDir, "images"),
         fileName: "image.png",
@@ -1185,7 +1180,6 @@ describe("framebook service", () => {
           prompt: "First tea stall prompt",
           rawPrompt: "First tea stall",
           aspectRatio: "16:9",
-          resolutionPreset: "2k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "first.png",
@@ -1196,7 +1190,6 @@ describe("framebook service", () => {
           prompt: "Second tea stall prompt",
           rawPrompt: "Second tea stall",
           aspectRatio: "4:3",
-          resolutionPreset: "1k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "second.png",
@@ -1238,7 +1231,6 @@ describe("framebook service", () => {
             prompt: "First tea stall prompt",
             rawPrompt: "First tea stall",
             aspectRatio: "16:9",
-            resolutionPreset: "2k",
             topic,
             outputDir: path.join(dataDir, "images"),
             fileName: "first.png",
@@ -1247,7 +1239,6 @@ describe("framebook service", () => {
             prompt: "Second tea stall prompt",
             rawPrompt: "Second tea stall",
             aspectRatio: "4:3",
-            resolutionPreset: "1k",
             topic,
             outputDir: path.join(dataDir, "images"),
             fileName: "second.png",
@@ -1283,7 +1274,6 @@ describe("framebook service", () => {
           prompt: "First tea stall prompt",
           rawPrompt: "First tea stall",
           aspectRatio: "16:9",
-          resolutionPreset: "2k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "first.png",
@@ -1297,7 +1287,6 @@ describe("framebook service", () => {
           prompt: "Second tea stall prompt",
           rawPrompt: "Second tea stall",
           aspectRatio: "4:3",
-          resolutionPreset: "1k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "second.png",
@@ -1327,7 +1316,6 @@ describe("framebook service", () => {
           prompt: "First tea stall prompt",
           rawPrompt: "First tea stall",
           aspectRatio: "16:9",
-          resolutionPreset: "2k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "first.png",
@@ -1341,7 +1329,6 @@ describe("framebook service", () => {
           prompt: "Second tea stall prompt",
           rawPrompt: "Second tea stall",
           aspectRatio: "4:3",
-          resolutionPreset: "1k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "second.png",
@@ -1371,7 +1358,6 @@ describe("framebook service", () => {
           prompt: "First tea stall prompt",
           rawPrompt: "First tea stall",
           aspectRatio: "16:9",
-          resolutionPreset: "2k",
           topic,
           outputDir: path.join(dataDir, "images"),
           fileName: "first.png",

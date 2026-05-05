@@ -95,7 +95,6 @@ export class CodexAppServerImageClient {
     prompt,
     rawPrompt,
     aspectRatio,
-    resolutionPreset,
     topic,
     referenceImages,
     outputDir,
@@ -110,7 +109,6 @@ export class CodexAppServerImageClient {
           prompt,
           rawPrompt,
           aspectRatio,
-          resolutionPreset,
           topic,
           referenceImages,
           outputPath,
@@ -121,7 +119,6 @@ export class CodexAppServerImageClient {
           prompt,
           rawPrompt,
           aspectRatio,
-          resolutionPreset,
           topic,
           referenceImages,
           outputPath,
@@ -160,7 +157,6 @@ export class CodexAppServerImageClient {
     prompt,
     rawPrompt,
     aspectRatio,
-    resolutionPreset,
     topic,
     referenceImages,
     outputPath,
@@ -174,7 +170,6 @@ export class CodexAppServerImageClient {
           prompt,
           rawPrompt,
           aspectRatio,
-          resolutionPreset,
           topic,
           referenceImages,
           outputPath,
@@ -764,7 +759,6 @@ export function buildImageGenerationPrompt({
   prompt,
   rawPrompt,
   aspectRatio,
-  resolutionPreset,
   topic,
   referenceImages = [],
   outputPath,
@@ -775,7 +769,6 @@ export function buildImageGenerationPrompt({
   const basePromptDetails = topic.basePromptDetails
     ? `\nReusable base prompt details: ${topic.basePromptDetails}`
     : ""
-  const outputResolution = formatResolutionPreset(resolutionPreset)
   const referenceBlock = formatReferenceImages(referenceImages)
 
   return `Generate exactly one Framebook image using the available image creation skill/tool.
@@ -786,7 +779,6 @@ Topic: ${topic.name}${topicDescription}
 Topic instruction: ${topic.instruction}${basePromptDetails}
 Enhancer mode: ${topic.enhancerMode}
 Aspect ratio: ${aspectRatio}
-Output resolution: ${outputResolution}
 
 Raw prompt:
 ${rawPrompt}
@@ -824,18 +816,6 @@ Reference images:
 ${references.join("\n")}
 
 Use these files as visual references. The user's prompt controls what to preserve, change, or reinterpret. For edit-style requests, preserve requested identity, pose, composition, or product details from the references unless the prompt says otherwise.`
-}
-
-function formatResolutionPreset(value) {
-  switch (value) {
-    case "2k":
-      return "2K output resolution"
-    case "4k":
-      return "4K output resolution"
-    case "1k":
-    default:
-      return "1K output resolution"
-  }
 }
 
 export function buildPromptEnhancementPrompt({ topic, rawPrompt }) {

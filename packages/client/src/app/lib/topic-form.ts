@@ -17,11 +17,9 @@ export interface TopicDraft {
 export const defaultTopicDraft: TopicDraft = {
   name: "",
   description: "",
-  instruction:
-    "Create high-quality, visually compelling images that match this topic's style, mood, and intent. Stay consistent with composition, lighting, and typography where applicable.",
+  instruction: "",
   defaultAspectRatio: "16:9",
-  basePromptDetails:
-    "Clean composition, natural lighting, strong focal point, polished visual style.",
+  basePromptDetails: "",
   enhancerMode: "balanced",
 }
 

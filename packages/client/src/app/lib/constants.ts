@@ -1,7 +1,6 @@
 import type {
   AspectRatio,
   EnhancerMode,
-  ResolutionPreset,
 } from "@framebook/shared/contracts/framebook"
 
 export const aspectRatioOptions: Array<{
@@ -13,15 +12,6 @@ export const aspectRatioOptions: Array<{
   { value: "3:4", label: "3:4", description: "Portrait" },
   { value: "4:3", label: "4:3", description: "Landscape" },
   { value: "16:9", label: "16:9", description: "Wide" },
-]
-
-export const resolutionPresetOptions: Array<{
-  value: ResolutionPreset
-  label: string
-}> = [
-  { value: "1k", label: "Standard 1K" },
-  { value: "2k", label: "High 2K resolution" },
-  { value: "4k", label: "Ultra 4K resolution" },
 ]
 
 export const enhancerModeOptions: Array<{

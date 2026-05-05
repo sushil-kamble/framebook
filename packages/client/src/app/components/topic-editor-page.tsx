@@ -173,6 +173,7 @@ export function TopicEditorPage({
                 }
                 rows={6}
                 className="topic-editor-input min-h-32 resize-y"
+                placeholder="Add reusable prompt details, style notes, constraints, or recurring elements for this topic."
               />
             </Field>
 

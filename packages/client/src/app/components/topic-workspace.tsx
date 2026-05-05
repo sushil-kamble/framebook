@@ -3,6 +3,7 @@ import {
   Eye,
   ImageIcon,
   ImagePlus,
+  ImageUp,
   Loader2,
   Pencil,
   Send,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react"
 import { useDropzone } from "react-dropzone"
 import { cn } from "@shared/lib/utils"
-import { aspectRatioOptions, resolutionPresetOptions } from "../lib/constants"
+import { aspectRatioOptions } from "../lib/constants"
 import {
   formatDate,
   imageFileUrl,
@@ -22,12 +23,11 @@ import {
 } from "../lib/utils"
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { AppBreadcrumb } from "./app-breadcrumb"
-import type { FileRejection } from "react-dropzone"
+import type { DropzoneState, FileRejection } from "react-dropzone"
 import type {
   AspectRatio,
   GenerationJob,
   ImageRecord,
-  ResolutionPreset,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
@@ -57,7 +57,6 @@ export function TopicWorkspace(props: {
   promptValue: string
   referenceImages: Array<ReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
-  selectedResolutionPreset: ResolutionPreset
   favoriteOnly: boolean
   job: GenerationJob | null
   isEnhancing: boolean
@@ -71,7 +70,6 @@ export function TopicWorkspace(props: {
   onRemoveReferenceImage: (referenceImageId: string) => void
   onReferenceImageError: (message: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
-  onResolutionPresetChange: (value: ResolutionPreset) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
   onToggleFavorite: (image: ImageRecord) => void
@@ -86,9 +84,43 @@ export function TopicWorkspace(props: {
     props.isCreatingGeneration ||
     props.job?.status === "queued" ||
     props.job?.status === "running"
+  const availableReferenceSlots =
+    maxReferenceImages - props.referenceImages.length
+  const referenceImageDropzone = useDropzone({
+    accept: {
+      "image/png": [".png"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/webp": [".webp"],
+    },
+    disabled: isGenerating || availableReferenceSlots <= 0,
+    maxFiles: Math.max(1, availableReferenceSlots),
+    maxSize: maxReferenceImageBytes,
+    multiple: true,
+    noClick: true,
+    noKeyboard: true,
+    onDropAccepted: props.onAddReferenceImages,
+    onDropRejected: (rejections) => {
+      props.onReferenceImageError(referenceDropErrorMessage(rejections))
+    },
+  })
+  const isReferenceImageDragActive =
+    referenceImageDropzone.isDragActive || referenceImageDropzone.isDragGlobal
 
   return (
-    <div className="flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2">
+    <div
+      {...referenceImageDropzone.getRootProps({
+        "aria-label": "Topic workspace image dropzone",
+        "data-testid": "topic-workspace-dropzone",
+        className:
+          "relative flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2",
+      })}
+    >
+      <input {...referenceImageDropzone.getInputProps()} />
+      {isReferenceImageDragActive ? (
+        <ReferenceImageDropOverlay
+          isRejecting={referenceImageDropzone.isDragReject}
+        />
+      ) : null}
       <header className="flex flex-col gap-2 border-b border-border/60 pb-2 lg:flex-row lg:items-center lg:justify-between">
         <AppBreadcrumb
           items={[
@@ -137,18 +169,15 @@ export function TopicWorkspace(props: {
             promptValue={props.promptValue}
             referenceImages={props.referenceImages}
             selectedAspectRatio={props.selectedAspectRatio}
-            selectedResolutionPreset={props.selectedResolutionPreset}
             isEnhancing={props.isEnhancing}
             isGenerating={isGenerating}
             canGenerate={canGenerate}
             onPromptChange={props.onPromptChange}
-            onAddReferenceImages={props.onAddReferenceImages}
             onRemoveReferenceImage={props.onRemoveReferenceImage}
-            onReferenceImageError={props.onReferenceImageError}
             onAspectRatioChange={props.onAspectRatioChange}
-            onResolutionPresetChange={props.onResolutionPresetChange}
             onEnhancePrompt={props.onEnhancePrompt}
             onGenerate={props.onGenerate}
+            referenceImageDropzone={referenceImageDropzone}
           />
         </div>
       </section>
@@ -205,49 +234,28 @@ function PromptComposer(props: {
   promptValue: string
   referenceImages: Array<ReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
-  selectedResolutionPreset: ResolutionPreset
   isEnhancing: boolean
   isGenerating: boolean
   canGenerate: boolean
+  referenceImageDropzone: DropzoneState
   onPromptChange: (value: string) => void
-  onAddReferenceImages: (files: Array<File>) => void
   onRemoveReferenceImage: (referenceImageId: string) => void
-  onReferenceImageError: (message: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
-  onResolutionPresetChange: (value: ResolutionPreset) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
 }) {
   const availableReferenceSlots =
     maxReferenceImages - props.referenceImages.length
-  const dropzone = useDropzone({
-    accept: {
-      "image/png": [".png"],
-      "image/jpeg": [".jpg", ".jpeg"],
-      "image/webp": [".webp"],
-    },
-    disabled: props.isGenerating || availableReferenceSlots <= 0,
-    maxFiles: Math.max(1, availableReferenceSlots),
-    maxSize: maxReferenceImageBytes,
-    multiple: true,
-    noClick: true,
-    noKeyboard: true,
-    onDropAccepted: props.onAddReferenceImages,
-    onDropRejected: (rejections) => {
-      props.onReferenceImageError(referenceDropErrorMessage(rejections))
-    },
-  })
 
   return (
     <div
-      {...dropzone.getRootProps({
-        className: cn(
-          "rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur-sm transition-colors",
-          dropzone.isDragActive ? "border-ring/40 bg-accent/40" : ""
-        ),
-      })}
+      className={cn(
+        "rounded-2xl border border-border/60 bg-card/80 p-3 shadow-sm backdrop-blur-sm transition-colors",
+        props.referenceImageDropzone.isDragActive
+          ? "border-ring/40 bg-accent/40"
+          : ""
+      )}
     >
-      <input {...dropzone.getInputProps()} />
       <div className="flex flex-col gap-2">
         <label className="sr-only" htmlFor="raw-prompt">
           Prompt
@@ -258,9 +266,18 @@ function PromptComposer(props: {
             value={props.promptValue}
             onChange={(event) => props.onPromptChange(event.target.value)}
             rows={3}
-            className="min-h-18 resize-none border-border/50 bg-background/60 pr-36 pb-13 text-sm"
+            className={cn(
+              "min-h-18 resize-none border-border/50 bg-background/60 pr-36 pb-13 text-sm",
+              props.referenceImages.length > 0 ? "min-h-36 pb-24" : ""
+            )}
             placeholder="Describe the image you want to create..."
           />
+          {props.referenceImages.length > 0 ? (
+            <ReferenceImageStrip
+              referenceImages={props.referenceImages}
+              onRemoveReferenceImage={props.onRemoveReferenceImage}
+            />
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -285,18 +302,12 @@ function PromptComposer(props: {
             aria-label="Attach reference images"
             title="Attach reference images"
             disabled={props.isGenerating || availableReferenceSlots <= 0}
-            onClick={dropzone.open}
+            onClick={props.referenceImageDropzone.open}
             className="absolute right-3 bottom-3"
           >
             <ImagePlus data-icon="inline-start" />
           </Button>
         </div>
-        {props.referenceImages.length > 0 ? (
-          <ReferenceImageStrip
-            referenceImages={props.referenceImages}
-            onRemoveReferenceImage={props.onRemoveReferenceImage}
-          />
-        ) : null}
       </div>
 
       <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -318,29 +329,6 @@ function PromptComposer(props: {
                 {aspectRatioOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label} {option.description}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={props.selectedResolutionPreset}
-            onValueChange={(value) =>
-              props.onResolutionPresetChange(value as ResolutionPreset)
-            }
-          >
-            <SelectTrigger
-              className="w-full text-xs sm:w-52"
-              aria-label="Resolution"
-            >
-              <SelectValue placeholder="Resolution" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {resolutionPresetOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -369,30 +357,58 @@ function PromptComposer(props: {
   )
 }
 
+function ReferenceImageDropOverlay(props: { isRejecting: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-background/82 px-6 text-center backdrop-blur-sm">
+      <div className="pointer-events-none flex max-w-sm flex-col items-center">
+        <div
+          className={cn(
+            "mb-5 grid size-20 place-items-center rounded-2xl border bg-card text-ring shadow-lg shadow-black/25",
+            props.isRejecting
+              ? "border-destructive/45 text-destructive"
+              : "border-ring/35"
+          )}
+        >
+          <ImageUp className="size-9" strokeWidth={1.75} />
+        </div>
+        <div className="text-2xl font-semibold tracking-tight">
+          {props.isRejecting ? "Image not supported" : "Add reference image"}
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {props.isRejecting
+            ? "Drop a PNG, JPEG, or WebP image up to 10 MB."
+            : "Drop it anywhere to attach it to the prompt."}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function ReferenceImageStrip(props: {
   referenceImages: Array<ReferenceImageAttachment>
   onRemoveReferenceImage: (referenceImageId: string) => void
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-background/45 p-2">
-      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>Reference images</span>
-        <span>
-          {props.referenceImages.length}/{maxReferenceImages}
-        </span>
-      </div>
+    <div className="absolute right-28 bottom-3 left-3">
       <div className="flex gap-2 overflow-x-auto">
         {props.referenceImages.map((referenceImage) => (
           <div
             key={referenceImage.id}
-            className="relative size-16 shrink-0 overflow-hidden rounded-xl border border-border/50 bg-muted"
+            className="relative size-18 shrink-0 overflow-hidden rounded-xl border border-border/50 bg-muted"
             title={referenceImage.file.name}
           >
-            <img
-              src={referenceImage.previewUrl}
-              alt={`Reference ${referenceImage.file.name}`}
-              className="size-full object-cover"
-            />
+            <a
+              href={referenceImage.previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open ${referenceImage.file.name}`}
+            >
+              <img
+                src={referenceImage.previewUrl}
+                alt={`Reference ${referenceImage.file.name}`}
+                className="size-full object-cover"
+              />
+            </a>
             <Button
               type="button"
               variant="secondary"

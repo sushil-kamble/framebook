@@ -187,7 +187,6 @@ describe("framebook api client", () => {
         rawPrompt: "Change the t-shirt color",
         enhancedPrompt: "Change only the t-shirt color.",
         aspectRatio: "4:3",
-        resolutionPreset: "1k",
       },
       [referenceImage]
     )

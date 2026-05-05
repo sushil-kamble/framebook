@@ -311,8 +311,7 @@ async function readGenerationMultipartBody(request) {
         name === "rawPrompt" ||
         name === "enhancedPrompt" ||
         name === "title" ||
-        name === "aspectRatio" ||
-        name === "resolutionPreset"
+        name === "aspectRatio"
       ) {
         fields[name] = value
       }

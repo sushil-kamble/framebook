@@ -57,7 +57,6 @@ describe("optimized image grids", () => {
         promptValue=""
         referenceImages={[]}
         selectedAspectRatio="4:3"
-        selectedResolutionPreset="1k"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -71,7 +70,6 @@ describe("optimized image grids", () => {
         onRemoveReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onResolutionPresetChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -122,7 +120,6 @@ describe("optimized image grids", () => {
           },
         ]}
         selectedAspectRatio="4:3"
-        selectedResolutionPreset="1k"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -136,7 +133,6 @@ describe("optimized image grids", () => {
         onRemoveReferenceImage={onRemoveReferenceImage}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onResolutionPresetChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -148,8 +144,6 @@ describe("optimized image grids", () => {
       />
     )
 
-    expect(screen.getByText("Reference images")).toBeTruthy()
-    expect(screen.getByText("1/5")).toBeTruthy()
     expect(
       screen.getByRole("img", { name: "Reference subject.png" })
     ).toBeTruthy()
@@ -157,6 +151,57 @@ describe("optimized image grids", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove subject.png" }))
 
     expect(onRemoveReferenceImage).toHaveBeenCalledWith("reference-1")
+  })
+
+  it("accepts image drops from the full topic workspace", async () => {
+    const onAddReferenceImages = vi.fn()
+    const file = new File(["png"], "screen.png", { type: "image/png" })
+
+    render(
+      <TopicWorkspace
+        topic={topicSummary}
+        images={[]}
+        promptValue="Use this reference"
+        referenceImages={[]}
+        selectedAspectRatio="4:3"
+        favoriteOnly={false}
+        job={null}
+        isEnhancing={false}
+        isCreatingGeneration={false}
+        isLoadingImages={false}
+        onBack={vi.fn()}
+        onEditTopic={vi.fn()}
+        onArchiveTopic={vi.fn()}
+        onPromptChange={vi.fn()}
+        onAddReferenceImages={onAddReferenceImages}
+        onRemoveReferenceImage={vi.fn()}
+        onReferenceImageError={vi.fn()}
+        onAspectRatioChange={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onGenerate={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onFavoriteFilterChange={vi.fn()}
+      />
+    )
+
+    const dropzone = screen.getByTestId("topic-workspace-dropzone")
+
+    fireEvent.dragEnter(dropzone, {
+      dataTransfer: referenceImageDataTransfer(file),
+    })
+
+    expect(screen.getByText("Add reference image")).toBeTruthy()
+
+    fireEvent.drop(dropzone, {
+      dataTransfer: referenceImageDataTransfer(file),
+    })
+
+    await waitFor(() => expect(onAddReferenceImages).toHaveBeenCalledOnce())
+    expect(onAddReferenceImages.mock.calls[0]?.[0]).toEqual([file])
   })
 
   it("reopens the same hovered image when v is pressed after closing preview", async () => {
@@ -276,7 +321,6 @@ describe("optimized image grids", () => {
       />
     )
 
-    expect(screen.getByText("Reference images")).toBeTruthy()
     expect(screen.getByRole("img", { name: "subject.png" })).toBeTruthy()
     expect(
       screen.getByRole("link", { name: "subject.png" }).getAttribute("href")
@@ -299,7 +343,6 @@ function PreviewToggleHarness() {
         promptValue=""
         referenceImages={[]}
         selectedAspectRatio="4:3"
-        selectedResolutionPreset="1k"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -313,7 +356,6 @@ function PreviewToggleHarness() {
         onRemoveReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onResolutionPresetChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -405,4 +447,18 @@ const imageRecord: ImageRecord = {
     },
   ],
   createdAt: "2026-05-04T10:00:00.000Z",
+}
+
+function referenceImageDataTransfer(file: File) {
+  return {
+    files: [file],
+    items: [
+      {
+        kind: "file",
+        type: file.type,
+        getAsFile: () => file,
+      },
+    ],
+    types: ["Files"],
+  }
 }

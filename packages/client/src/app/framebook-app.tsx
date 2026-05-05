@@ -36,7 +36,6 @@ import type {
   AspectRatio,
   GenerationJob,
   ImageRecord,
-  ResolutionPreset,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
 
@@ -93,8 +92,6 @@ export function FramebookApp({
   const referenceImagesRef = useRef(referenceImages)
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
-  const [selectedResolutionPreset, setSelectedResolutionPreset] =
-    useState<ResolutionPreset>("1k")
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [isLoadingTopics, setIsLoadingTopics] = useState(true)
   const [isLoadingImages, setIsLoadingImages] = useState(false)
@@ -375,12 +372,6 @@ export function FramebookApp({
       window.clearInterval(intervalId)
     }
   }, [activeGenerationJobId, finishGenerationJob])
-
-  useEffect(() => {
-    if (activeTopic?.id) {
-      setSelectedResolutionPreset("1k")
-    }
-  }, [activeTopic?.id])
 
   useEffect(() => {
     if (currentRouteScreen !== "image-detail" || !currentRouteImageId) {
@@ -679,7 +670,6 @@ export function FramebookApp({
           rawPrompt: submittedUserPrompt,
           enhancedPrompt: submittedGenerationPrompt,
           aspectRatio: selectedAspectRatio,
-          resolutionPreset: selectedResolutionPreset,
         },
         referenceImages.map((referenceImage) => referenceImage.file)
       )
@@ -861,7 +851,6 @@ export function FramebookApp({
                 promptValue={promptValue}
                 referenceImages={referenceImages}
                 selectedAspectRatio={selectedAspectRatio}
-                selectedResolutionPreset={selectedResolutionPreset}
                 favoriteOnly={favoriteOnly}
                 job={job}
                 isEnhancing={isEnhancing}
@@ -875,7 +864,6 @@ export function FramebookApp({
                 onRemoveReferenceImage={removeReferenceImage}
                 onReferenceImageError={showReferenceImageError}
                 onAspectRatioChange={setSelectedAspectRatio}
-                onResolutionPresetChange={setSelectedResolutionPreset}
                 onEnhancePrompt={enhanceCurrentPrompt}
                 onGenerate={generateCurrentPrompt}
                 onToggleFavorite={toggleFavorite}

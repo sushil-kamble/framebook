@@ -156,7 +156,7 @@ describe("toast lifecycle", () => {
       target: { files: [referenceImage] },
     })
 
-    await screen.findByText("1/5")
+    await screen.findByRole("img", { name: "Reference subject.png" })
     fireEvent.click(screen.getByRole("button", { name: "Enhance prompt" }))
 
     await waitFor(() => {
@@ -230,7 +230,6 @@ const queuedGenerationJob: GenerationJob = {
   enhancedPrompt: "",
   finalPrompt: "A mountain railway poster",
   aspectRatio: "4:3",
-  resolutionPreset: "1k",
   referenceImages: [],
   imageId: null,
   error: null,

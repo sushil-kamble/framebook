@@ -185,7 +185,6 @@ function generationFormData(
   appendFormField(formData, "enhancedPrompt", input.enhancedPrompt)
   appendFormField(formData, "title", input.title)
   appendFormField(formData, "aspectRatio", input.aspectRatio)
-  appendFormField(formData, "resolutionPreset", input.resolutionPreset)
 
   for (const file of referenceImages) {
     formData.append("referenceImages", file, file.name)

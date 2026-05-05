@@ -14,7 +14,6 @@ import {
 import { createFramebookStore } from "./storage.mjs"
 import { createCodexClient } from "#infra/agent-clients/codex.mjs"
 
-const resolutionPresets = new Set(["1k", "2k", "4k"])
 const imageTitleMaxLength = 60
 const referenceDirName = "references"
 const maxReferenceImages = 5
@@ -376,7 +375,6 @@ export function createFramebookService({
     const aspectRatio = input.aspectRatio
       ? requireAspectRatio(input.aspectRatio)
       : topic.defaultAspectRatio
-    const resolutionPreset = requireResolutionPreset(input.resolutionPreset)
     const enhancedPrompt =
       optionalText(input.enhancedPrompt) ||
       (await resolveEnhancedPrompt({ topic, rawPrompt }))
@@ -395,7 +393,6 @@ export function createFramebookService({
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
       aspectRatio,
-      resolutionPreset,
     })
     const job = {
       id: jobId,
@@ -406,7 +403,6 @@ export function createFramebookService({
       enhancedPrompt,
       finalPrompt,
       aspectRatio,
-      resolutionPreset,
       referenceImages,
       imageId: null,
       error: null,
@@ -502,7 +498,6 @@ export function createFramebookService({
         prompt: job.finalPrompt,
         rawPrompt: job.rawPrompt,
         aspectRatio: job.aspectRatio,
-        resolutionPreset: job.resolutionPreset,
         topic,
         referenceImages: referenceImagesWithPaths(
           topic.id,
@@ -1101,38 +1096,13 @@ function requireEnhancerMode(value) {
   return value
 }
 
-function requireResolutionPreset(value) {
-  if (value === undefined || value === null || value === "") {
-    return "1k"
-  }
-
-  if (!resolutionPresets.has(value)) {
-    throw badRequest("Invalid resolution preset")
-  }
-
-  return value
-}
-
-function buildFinalPrompt({ enhancedPrompt, aspectRatio, resolutionPreset }) {
+function buildFinalPrompt({ enhancedPrompt, aspectRatio }) {
   return [
     enhancedPrompt,
     "",
     "Generation requirements:",
     `- Aspect ratio: ${aspectRatio}`,
-    `- Output resolution: ${formatResolutionPreset(resolutionPreset)}`,
   ].join("\n")
-}
-
-function formatResolutionPreset(value) {
-  switch (value) {
-    case "2k":
-      return "2K"
-    case "4k":
-      return "4K"
-    case "1k":
-    default:
-      return "1K"
-  }
 }
 
 function extractExplicitTitleFromPrompt(prompt) {
