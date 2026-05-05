@@ -677,12 +677,61 @@ describe("framebook service", () => {
 
     expect(firstJob.jobs).toHaveLength(2)
     expect(firstJob.jobs.map((job) => job.versionIndex)).toEqual([1, 2])
+    expect(firstJob.jobs.map((job) => job.title)).toEqual([
+      "Generate 10 rainy hill station markets v1",
+      "Generate 10 rainy hill station markets v2",
+    ])
     expect(firstJob.jobs.every((job) => job.versionCount === 2)).toBe(true)
     expect(new Set(firstJob.jobs.map((job) => job.finalPrompt)).size).toBe(1)
 
     await expect(
       service.listGenerationJobs(topic.id, { activeOnly: true })
     ).resolves.toHaveLength(2)
+  })
+
+  it("generates one title for multi-version generations and appends version labels", async () => {
+    let generateTitleCalls = 0
+    const titledService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...createFakeCodexClient(),
+        async generateTitle() {
+          generateTitleCalls += 1
+          return "Misty Tea Stall"
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(titledService)
+    const firstJob = await titledService.createGeneration(topic.id, {
+      rawPrompt: "Morning tea stall in misty hills",
+      aspectRatio: "4:3",
+      versionCount: 4,
+    })
+
+    expect(generateTitleCalls).toBe(1)
+    expect(firstJob.jobs.map((job) => job.title)).toEqual([
+      "Misty Tea Stall v1",
+      "Misty Tea Stall v2",
+      "Misty Tea Stall v3",
+      "Misty Tea Stall v4",
+    ])
+
+    await Promise.all(
+      firstJob.jobs.map((generationJob) =>
+        titledService.runGenerationJob(generationJob.id)
+      )
+    )
+
+    expect(generateTitleCalls).toBe(1)
+    await expect(titledService.listImages(topic.id)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Misty Tea Stall v1" }),
+        expect.objectContaining({ title: "Misty Tea Stall v2" }),
+        expect.objectContaining({ title: "Misty Tea Stall v3" }),
+        expect.objectContaining({ title: "Misty Tea Stall v4" }),
+      ])
+    )
   })
 
   it("rejects unsupported generation version counts", async () => {

@@ -415,10 +415,18 @@ export function createFramebookService({
     const enhancedPrompt =
       optionalText(input.enhancedPrompt) ||
       (await resolveEnhancedPrompt({ topic, rawPrompt }))
-    const title = resolveInitialImageTitle({
-      rawPrompt,
-      inputTitle: input.title,
-    })
+    const title =
+      versionCount > 1
+        ? await resolveImageTitle({
+            topic,
+            rawPrompt,
+            enhancedPrompt,
+            inputTitle: input.title,
+          })
+        : resolveInitialImageTitle({
+            rawPrompt,
+            inputTitle: input.title,
+          })
     const batchId = store.createId()
     const now = new Date().toISOString()
     const finalPrompt = buildFinalPrompt({
@@ -440,7 +448,8 @@ export function createFramebookService({
         id: jobId,
         topicId: topic.id,
         status: "queued",
-        title,
+        title:
+          versionCount > 1 ? versionedImageTitle(title, index + 1) : title,
         rawPrompt,
         enhancedPrompt,
         finalPrompt,
@@ -1261,6 +1270,25 @@ function normalizeImageTitle(value) {
     .slice(0, imageTitleMaxLength)
     .replace(/\s+\S*$/u, "")
   return (wordBoundary || cleaned.slice(0, imageTitleMaxLength)).trim()
+}
+
+function versionedImageTitle(title, versionIndex) {
+  const suffix = ` v${versionIndex}`
+  const baseTitle = normalizeImageTitle(title) || "Untitled image"
+
+  if (baseTitle.length + suffix.length <= imageTitleMaxLength) {
+    return `${baseTitle}${suffix}`
+  }
+
+  const maxBaseLength = imageTitleMaxLength - suffix.length
+  const wordBoundary = baseTitle
+    .slice(0, maxBaseLength)
+    .replace(/\s+\S*$/u, "")
+  const truncatedBase = (wordBoundary || baseTitle.slice(0, maxBaseLength))
+    .replace(/[|,;:./\-\s]+$/gu, "")
+    .trim()
+
+  return `${truncatedBase || "Untitled image"}${suffix}`
 }
 
 function titleFromPrompt(prompt) {
