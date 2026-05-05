@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react"
-import { Archive, Download, FolderOpen, Share2, X } from "lucide-react"
+import {
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FolderOpen,
+  Share2,
+  X,
+} from "lucide-react"
+import { cn } from "@shared/lib/utils"
 import {
   formatDate,
   formatViewerTimestamp,
@@ -23,9 +32,11 @@ export function ImagePreviewDialog(props: {
   onRevealImage: (image: ImageRecord) => Promise<unknown>
   onShareImage: (image: ImageRecord) => Promise<void>
   onArchiveImage: (image: ImageRecord) => Promise<void>
+  onPreviousImage?: () => void
+  onNextImage?: () => void
 }) {
   const image = props.image
-  const { onClose } = props
+  const { onClose, onNextImage, onPreviousImage } = props
   const [imageResolution, setImageResolution] = useState<{
     width: number
     height: number
@@ -39,21 +50,31 @@ export function ImagePreviewDialog(props: {
     if (!image) return
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (
-        event.defaultPrevented ||
-        event.repeat ||
-        event.key.toLowerCase() !== "v"
-      ) {
+      if (event.defaultPrevented || event.repeat) {
         return
       }
 
-      event.preventDefault()
-      onClose()
+      if (event.key.toLowerCase() === "v") {
+        event.preventDefault()
+        onClose()
+        return
+      }
+
+      if (event.key === "ArrowLeft" && onPreviousImage) {
+        event.preventDefault()
+        onPreviousImage()
+        return
+      }
+
+      if (event.key === "ArrowRight" && onNextImage) {
+        event.preventDefault()
+        onNextImage()
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [image, onClose])
+  }, [image, onClose, onNextImage, onPreviousImage])
 
   if (!image) {
     return null
@@ -91,6 +112,24 @@ export function ImagePreviewDialog(props: {
               }
             }}
           />
+          {onPreviousImage ? (
+            <ViewerNavigationButton
+              label="Previous image"
+              className="left-3 sm:left-4"
+              onClick={onPreviousImage}
+            >
+              <ChevronLeft />
+            </ViewerNavigationButton>
+          ) : null}
+          {onNextImage ? (
+            <ViewerNavigationButton
+              label="Next image"
+              className="right-3 sm:right-4"
+              onClick={onNextImage}
+            >
+              <ChevronRight />
+            </ViewerNavigationButton>
+          ) : null}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-linear-to-t from-black via-black/72 to-transparent" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 sm:p-4">
             <div className="max-w-[65%] min-w-0">
@@ -136,6 +175,34 @@ export function ImagePreviewDialog(props: {
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ViewerNavigationButton({
+  label,
+  children,
+  className,
+  onClick,
+}: {
+  label: string
+  children: ReactNode
+  className: string
+  onClick: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      className={cn(
+        "absolute top-1/2 z-10 size-8 -translate-y-1/2 rounded-full border border-white/10 bg-black/12 text-white/70 shadow-[0_16px_48px_rgba(0,0,0,0.35)] backdrop-blur-md hover:border-white/18 hover:bg-white/10 hover:text-white focus-visible:border-white/35 focus-visible:ring-white/20 sm:size-9",
+        className
+      )}
+      onClick={onClick}
+    >
+      {children}
+      <span className="sr-only">{label}</span>
+    </Button>
   )
 }
 

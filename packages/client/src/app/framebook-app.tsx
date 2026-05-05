@@ -126,6 +126,25 @@ export function FramebookApp({
       (detailImage?.id === previewImageId ? detailImage : null),
     [detailImage, images, previewImageId, starredImages]
   )
+  const previewImages = useMemo(() => {
+    if (!previewImage) {
+      return []
+    }
+
+    if (screen === "topic") {
+      return images.some((image) => image.id === previewImage.id)
+        ? images
+        : [previewImage]
+    }
+
+    if (isStarredImagesScreen(screen)) {
+      return starredImages.some((image) => image.id === previewImage.id)
+        ? starredImages
+        : [previewImage]
+    }
+
+    return [previewImage]
+  }, [images, previewImage, screen, starredImages])
   const activeDetailImage = useMemo(
     () =>
       images.find((image) => image.id === currentRouteImageId) ??
@@ -135,6 +154,24 @@ export function FramebookApp({
   const togglePreviewImage = useCallback((image: ImageRecord) => {
     setPreviewImageId((current) => (current === image.id ? null : image.id))
   }, [])
+  const cyclePreviewImage = useCallback(
+    (direction: -1 | 1) => {
+      if (!previewImageId || previewImages.length <= 1) {
+        return
+      }
+
+      const currentIndex = previewImages.findIndex(
+        (image) => image.id === previewImageId
+      )
+      const safeCurrentIndex = currentIndex === -1 ? 0 : currentIndex
+      const nextIndex =
+        (safeCurrentIndex + direction + previewImages.length) %
+        previewImages.length
+
+      setPreviewImageId(previewImages[nextIndex]?.id ?? previewImageId)
+    },
+    [previewImageId, previewImages]
+  )
   const promptValue =
     promptMode === "generation" ? generationPrompt : userPrompt
   const isLoadingActiveTopic =
@@ -1029,6 +1066,12 @@ export function FramebookApp({
         onRevealImage={(image) => framebookApi.revealImage(image.id)}
         onShareImage={shareImage}
         onArchiveImage={archiveImage}
+        onPreviousImage={
+          previewImages.length > 1 ? () => cyclePreviewImage(-1) : undefined
+        }
+        onNextImage={
+          previewImages.length > 1 ? () => cyclePreviewImage(1) : undefined
+        }
       />
     </main>
   )

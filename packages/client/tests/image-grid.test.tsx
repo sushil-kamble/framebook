@@ -294,6 +294,36 @@ describe("optimized image grids", () => {
     expect(onClosePreview).toHaveBeenCalledOnce()
   })
 
+  it("cycles preview images with navigation buttons and arrow keys", () => {
+    const onPreviousImage = vi.fn()
+    const onNextImage = vi.fn()
+
+    render(
+      <ImagePreviewDialog
+        image={imageRecord}
+        onClose={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onRevealImage={vi.fn()}
+        onShareImage={vi.fn()}
+        onArchiveImage={vi.fn()}
+        onPreviousImage={onPreviousImage}
+        onNextImage={onNextImage}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Next image" }))
+    expect(onNextImage).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous image" }))
+    expect(onPreviousImage).toHaveBeenCalledOnce()
+
+    fireEvent.keyDown(window, { key: "ArrowRight" })
+    fireEvent.keyDown(window, { key: "ArrowLeft" })
+
+    expect(onNextImage).toHaveBeenCalledTimes(2)
+    expect(onPreviousImage).toHaveBeenCalledTimes(2)
+  })
+
   it("renders reference images on image detail", () => {
     render(
       <ImageDetailPage
