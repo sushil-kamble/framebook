@@ -14,7 +14,7 @@ export function sendNoContent(response, statusCode = 204) {
 export function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers': 'content-type',
   }
 }

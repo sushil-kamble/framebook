@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
-import { Loader2, Monitor, RotateCcw } from "lucide-react"
+import { Loader2, Monitor, RotateCcw, Trash2 } from "lucide-react"
 import { framebookApi, framebookApiUrl } from "@shared/api/framebook"
 import { formatDate, imageFileUrl } from "../lib/utils"
 import { AppBreadcrumb } from "./app-breadcrumb"
+import { ConfirmationDialog } from "./confirmation-dialog"
 import type {
   ImageRecord,
   TopicSummary,
@@ -11,9 +12,11 @@ import { Button } from "@/shared/ui/button"
 import { Skeleton } from "@/shared/ui/skeleton"
 
 export function SettingsScreen({
+  onDeleteImage,
   onUnarchiveImage,
   onUnarchiveTopic,
 }: {
+  onDeleteImage: (image: ImageRecord) => Promise<void>
   onUnarchiveImage: (image: ImageRecord) => Promise<void>
   onUnarchiveTopic: (topic: TopicSummary) => Promise<void>
 }) {
@@ -29,6 +32,7 @@ export function SettingsScreen({
   const [isLoadingArchivedImages, setIsLoadingArchivedImages] = useState(true)
   const [restoringTopicId, setRestoringTopicId] = useState<string | null>(null)
   const [restoringImageId, setRestoringImageId] = useState<string | null>(null)
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -100,6 +104,18 @@ export function SettingsScreen({
     }
   }
 
+  const deleteImage = async (image: ImageRecord) => {
+    setDeletingImageId(image.id)
+    try {
+      await onDeleteImage(image)
+      setArchivedImages((current) =>
+        current.filter((candidate) => candidate.id !== image.id)
+      )
+    } finally {
+      setDeletingImageId(null)
+    }
+  }
+
   return (
     <div className="settings-stage relative min-h-svh overflow-hidden">
       <div className="settings-vignette pointer-events-none absolute inset-0" />
@@ -109,7 +125,7 @@ export function SettingsScreen({
       </header>
 
       <div className="relative z-10 flex w-full justify-center px-4 pt-4 pb-6 md:px-6">
-        <div className="settings-panel w-full max-w-3xl overflow-hidden rounded-3xl p-5 sm:p-6 lg:p-8">
+        <div className="settings-panel w-full max-w-5xl overflow-hidden rounded-3xl p-5 sm:p-6 lg:p-8">
           <div>
             <div className="mb-4 flex items-center gap-3 border-b border-border/40 pb-4">
               <div className="grid size-8 place-items-center rounded-xl framer-spotlight-orange text-white shadow-sm shadow-black/25">
@@ -287,7 +303,7 @@ export function SettingsScreen({
                 {["first", "second", "third", "fourth"].map((key) => (
                   <div
                     key={key}
-                    className="aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted"
+                    className="aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted"
                   >
                     <Skeleton className="size-full rounded-none" />
                   </div>
@@ -306,7 +322,7 @@ export function SettingsScreen({
                 {archivedImages.map((image) => (
                   <article
                     key={image.id}
-                    className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm"
+                    className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm"
                   >
                     <img
                       src={imageFileUrl(image.id)}
@@ -329,12 +345,15 @@ export function SettingsScreen({
                         </span>
                       </div>
                     </div>
-                    <div className="absolute top-1.5 right-1.5">
+                    <div className="absolute top-1.5 right-1.5 flex items-center gap-1.5">
                       <Button
                         type="button"
                         variant="secondary"
                         size="sm"
-                        disabled={restoringImageId === image.id}
+                        disabled={
+                          restoringImageId === image.id ||
+                          deletingImageId === image.id
+                        }
                         onClick={() => void restoreImage(image)}
                       >
                         {restoringImageId === image.id ? (
@@ -347,6 +366,40 @@ export function SettingsScreen({
                         )}
                         Unarchive
                       </Button>
+                      <ConfirmationDialog
+                        title="Delete archived image?"
+                        description={
+                          <>
+                            This will permanently delete "{image.title}" from
+                            the database and remove its local image files.
+                          </>
+                        }
+                        confirmLabel="Delete"
+                        isPending={deletingImageId === image.id}
+                        onConfirm={() => deleteImage(image)}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="border border-destructive bg-destructive text-white hover:bg-destructive/90 hover:text-white focus-visible:border-destructive focus-visible:ring-destructive/30 dark:bg-destructive dark:hover:bg-destructive/90"
+                            disabled={
+                              restoringImageId === image.id ||
+                              deletingImageId === image.id
+                            }
+                          >
+                            {deletingImageId === image.id ? (
+                              <Loader2
+                                className="animate-spin"
+                                data-icon="inline-start"
+                              />
+                            ) : (
+                              <Trash2 data-icon="inline-start" />
+                            )}
+                            Delete
+                          </Button>
+                        }
+                      />
                     </div>
                   </article>
                 ))}

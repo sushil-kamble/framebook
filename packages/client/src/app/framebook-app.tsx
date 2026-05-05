@@ -577,6 +577,27 @@ export function FramebookApp({
     }
   }
 
+  const deleteImage = async (image: ImageRecord) => {
+    try {
+      await framebookApi.deleteImage(image.id)
+      setImages((current) =>
+        current.filter((candidate) => candidate.id !== image.id)
+      )
+      setStarredImages((current) =>
+        current.filter((candidate) => candidate.id !== image.id)
+      )
+      setDetailImage((current) =>
+        current?.id === image.id ? null : current
+      )
+      setPreviewImageId((current) => (current === image.id ? null : current))
+      await loadTopics()
+      toast.success("Image deleted", { description: image.title })
+    } catch (requestError) {
+      setError(errorMessage(requestError))
+      throw requestError
+    }
+  }
+
   const enhanceCurrentPrompt = async () => {
     if (!activeTopic || !userPrompt.trim()) {
       return
@@ -950,6 +971,7 @@ export function FramebookApp({
 
             {screen === "settings" ? (
               <SettingsScreen
+                onDeleteImage={deleteImage}
                 onUnarchiveImage={unarchiveImage}
                 onUnarchiveTopic={unarchiveTopic}
               />

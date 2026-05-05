@@ -38,7 +38,11 @@ describe("settings screen", () => {
 
   it("renders on the generated settings background stage", async () => {
     const { container } = render(
-      <SettingsScreen onUnarchiveImage={vi.fn()} onUnarchiveTopic={vi.fn()} />
+      <SettingsScreen
+        onDeleteImage={vi.fn()}
+        onUnarchiveImage={vi.fn()}
+        onUnarchiveTopic={vi.fn()}
+      />
     )
 
     expect(container.firstElementChild?.className).toContain("settings-stage")
