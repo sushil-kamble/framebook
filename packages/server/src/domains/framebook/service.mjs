@@ -1,9 +1,13 @@
 import { constants as fsConstants } from "node:fs"
-import { access, mkdir, stat, writeFile } from "node:fs/promises"
+import { access, mkdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import sharp from "sharp"
 import { enhancePrompt } from "./enhancer.mjs"
-import { isAspectRatio, isEnhancerMode } from "./constants.mjs"
+import {
+  isAspectRatio,
+  isEnhancerMode,
+  isGenerationVersionCount,
+} from "./constants.mjs"
 import {
   createImageOptimizer,
   imageVariantMimeType,
@@ -36,6 +40,7 @@ export function createFramebookService({
   autoRunJobs = true,
 } = {}) {
   const jobRunners = new Map()
+  let metadataWriteQueue = Promise.resolve()
   prewarmImageGenerator(codexClient)
   prewarmPromptEnhancer(codexClient)
 
@@ -240,12 +245,14 @@ export function createFramebookService({
     }
     const optimizedRecord = await maybeOptimizeImageRecord(record)
 
-    const [topics, images] = await Promise.all([
-      store.listTopics(),
-      listImageRecords(),
-    ])
-    await store.writeImages([...images, optimizedRecord])
-    await touchTopic(topics, topic.id, optimizedRecord.createdAt)
+    await withMetadataWriteLock(async () => {
+      const [topics, images] = await Promise.all([
+        store.listTopics(),
+        listImageRecords(),
+      ])
+      await store.writeImages([...images, optimizedRecord])
+      await touchTopic(topics, topic.id, optimizedRecord.createdAt)
+    })
     return optimizedRecord
   }
 
@@ -275,6 +282,35 @@ export function createFramebookService({
     images[imageIndex] = updated
     await store.writeImages(images)
     return updated
+  }
+
+  async function deleteImage(imageId) {
+    const [topics, images, jobs] = await Promise.all([
+      store.listTopics(),
+      listImageRecords(),
+      store.listJobs(),
+    ])
+    const image = images.find((candidate) => candidate.id === imageId)
+
+    if (!image) {
+      throw notFound("Image not found")
+    }
+
+    await deleteImageFiles(image, store.getTopicAssetDir(image.topicId))
+    await store.writeImages(
+      images.filter((candidate) => candidate.id !== image.id)
+    )
+
+    const now = new Date().toISOString()
+    const updatedJobs = jobs.map((job) =>
+      job.imageId === image.id ? { ...job, imageId: null, updatedAt: now } : job
+    )
+    if (updatedJobs.some((job, index) => job !== jobs[index])) {
+      await store.writeJobs(updatedJobs)
+    }
+
+    await touchTopic(topics, image.topicId, now)
+    return { deleted: true, imageId: image.id }
   }
 
   async function getImage(imageId) {
@@ -375,6 +411,7 @@ export function createFramebookService({
     const aspectRatio = input.aspectRatio
       ? requireAspectRatio(input.aspectRatio)
       : topic.defaultAspectRatio
+    const versionCount = requireGenerationVersionCount(input.versionCount)
     const enhancedPrompt =
       optionalText(input.enhancedPrompt) ||
       (await resolveEnhancedPrompt({ topic, rawPrompt }))
@@ -382,42 +419,58 @@ export function createFramebookService({
       rawPrompt,
       inputTitle: input.title,
     })
-    const jobId = store.createId()
+    const batchId = store.createId()
     const now = new Date().toISOString()
-    const referenceImages = await saveReferenceImages({
-      topic,
-      jobId,
-      files: input.referenceImages,
-      createdAt: now,
-    })
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
       aspectRatio,
     })
-    const job = {
-      id: jobId,
-      topicId: topic.id,
-      status: "queued",
-      title,
-      rawPrompt,
-      enhancedPrompt,
-      finalPrompt,
-      aspectRatio,
-      referenceImages,
-      imageId: null,
-      error: null,
-      createdAt: now,
-      updatedAt: now,
+    const createdJobs = []
+
+    for (let index = 0; index < versionCount; index += 1) {
+      const jobId = store.createId()
+      const referenceImages = await saveReferenceImages({
+        topic,
+        jobId,
+        files: input.referenceImages,
+        createdAt: now,
+      })
+
+      createdJobs.push({
+        id: jobId,
+        topicId: topic.id,
+        status: "queued",
+        title,
+        rawPrompt,
+        enhancedPrompt,
+        finalPrompt,
+        aspectRatio,
+        referenceImages,
+        imageId: null,
+        error: null,
+        batchId,
+        versionIndex: index + 1,
+        versionCount,
+        createdAt: now,
+        updatedAt: now,
+      })
     }
 
-    const jobs = await store.listJobs()
-    await store.writeJobs([...jobs, job])
+    await withMetadataWriteLock(async () => {
+      const jobs = await store.listJobs()
+      await store.writeJobs([...jobs, ...createdJobs])
+    })
 
     if (autoRunJobs) {
-      startGenerationJob(job.id)
+      for (const job of createdJobs) {
+        startGenerationJob(job.id)
+      }
     }
 
-    return job
+    return Object.defineProperty({ ...createdJobs[0] }, "jobs", {
+      value: createdJobs,
+      enumerable: false,
+    })
   }
 
   async function listGenerationJobs(
@@ -635,6 +688,12 @@ export function createFramebookService({
     }
   }
 
+  async function withMetadataWriteLock(operation) {
+    const queuedOperation = metadataWriteQueue.then(operation, operation)
+    metadataWriteQueue = queuedOperation.catch(() => {})
+    return queuedOperation
+  }
+
   async function ensureTopic(topicId) {
     const topics = await store.listTopics()
     const topic = topics.find((candidate) => candidate.id === topicId)
@@ -656,7 +715,19 @@ export function createFramebookService({
 
     const updated = { ...jobs[jobIndex], ...patch }
     jobs[jobIndex] = updated
-    await store.writeJobs(jobs)
+    await withMetadataWriteLock(async () => {
+      const latestJobs = await store.listJobs()
+      const latestIndex = latestJobs.findIndex(
+        (candidate) => candidate.id === jobId
+      )
+
+      if (latestIndex === -1) {
+        throw notFound("Generation job not found")
+      }
+
+      latestJobs[latestIndex] = { ...latestJobs[latestIndex], ...patch }
+      await store.writeJobs(latestJobs)
+    })
     return updated
   }
 
@@ -819,6 +890,7 @@ export function createFramebookService({
     listArchivedImages,
     addImageRecord,
     updateImage,
+    deleteImage,
     getImage,
     getImageFile,
     getReferenceImageFile,
@@ -1005,6 +1077,38 @@ function findImageVariant(image, width) {
   )
 }
 
+async function deleteImageFiles(image, topicAssetDir) {
+  const assetDir = path.resolve(topicAssetDir)
+  const fileNames = new Set([
+    image.fileName,
+    ...imageVariantWidths.map((width) =>
+      variantFileName(image.fileName, width)
+    ),
+    ...(Array.isArray(image.variants)
+      ? image.variants.map((variant) => variant.fileName)
+      : []),
+    ...normalizeReferenceImages(image.referenceImages).map(
+      (referenceImage) => referenceImage.fileName
+    ),
+  ])
+
+  await Promise.all(
+    [...fileNames]
+      .filter(Boolean)
+      .map((fileName) => removeAssetFile(assetDir, fileName))
+  )
+}
+
+async function removeAssetFile(assetDir, fileName) {
+  const filePath = path.resolve(assetDir, fileName)
+
+  if (!filePath.startsWith(`${assetDir}${path.sep}`)) {
+    throw badRequest("Invalid image file path")
+  }
+
+  await rm(filePath, { force: true })
+}
+
 async function fileExists(filePath) {
   if (!filePath) {
     return false
@@ -1094,6 +1198,16 @@ function requireEnhancerMode(value) {
   }
 
   return value
+}
+
+function requireGenerationVersionCount(value) {
+  const count = value === undefined ? 1 : Number(value)
+
+  if (!Number.isInteger(count) || !isGenerationVersionCount(count)) {
+    throw badRequest("Generation version count must be 1, 2, or 4")
+  }
+
+  return count
 }
 
 function buildFinalPrompt({ enhancedPrompt, aspectRatio }) {

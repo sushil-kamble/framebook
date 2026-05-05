@@ -136,11 +136,14 @@ export async function routeRequest(request, response) {
       const generationInput = isMultipartRequest(request)
         ? await readGenerationMultipartBody(request)
         : await readJsonBody(request)
-      const job = await getFramebookService().createGeneration(
+      const generation = await getFramebookService().createGeneration(
         decodeURIComponent(generationMatch[1]),
         generationInput
       )
-      sendJson(response, 202, { job })
+      sendJson(response, 202, {
+        job: generation,
+        jobs: generation.jobs ?? [generation],
+      })
       return
     }
 
@@ -183,6 +186,14 @@ export async function routeRequest(request, response) {
         await readJsonBody(request)
       )
       sendJson(response, 200, { image })
+      return
+    }
+
+    if (imageMatch && request.method === "DELETE") {
+      const result = await getFramebookService().deleteImage(
+        decodeURIComponent(imageMatch[1])
+      )
+      sendJson(response, 200, result)
       return
     }
 
@@ -311,7 +322,8 @@ async function readGenerationMultipartBody(request) {
         name === "rawPrompt" ||
         name === "enhancedPrompt" ||
         name === "title" ||
-        name === "aspectRatio"
+        name === "aspectRatio" ||
+        name === "versionCount"
       ) {
         fields[name] = value
       }

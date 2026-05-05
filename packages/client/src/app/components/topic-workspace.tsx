@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import { useDropzone } from "react-dropzone"
 import { cn } from "@shared/lib/utils"
-import { aspectRatioOptions } from "../lib/constants"
+import { aspectRatioOptions, generationVersionOptions } from "../lib/constants"
 import {
   formatDate,
   imageFileUrl,
@@ -23,10 +23,12 @@ import {
 } from "../lib/utils"
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { AppBreadcrumb } from "./app-breadcrumb"
+import { ConfirmationDialog } from "./confirmation-dialog"
 import type { DropzoneState, FileRejection } from "react-dropzone"
 import type {
   AspectRatio,
   GenerationJob,
+  GenerationVersionCount,
   ImageRecord,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
@@ -45,6 +47,12 @@ import { Textarea } from "@/shared/ui/textarea"
 const maxReferenceImages = 5
 const maxReferenceImageBytes = 10 * 1024 * 1024
 
+function activeGenerationJobCount(jobs: Array<GenerationJob>) {
+  return jobs.filter(
+    (job) => job.status === "queued" || job.status === "running"
+  ).length
+}
+
 interface ReferenceImageAttachment {
   id: string
   file: File
@@ -57,8 +65,10 @@ export function TopicWorkspace(props: {
   promptValue: string
   referenceImages: Array<ReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
+  selectedVersionCount?: GenerationVersionCount
   favoriteOnly: boolean
-  job: GenerationJob | null
+  job?: GenerationJob | null
+  jobs?: Array<GenerationJob>
   isEnhancing: boolean
   isCreatingGeneration: boolean
   isLoadingImages: boolean
@@ -70,9 +80,11 @@ export function TopicWorkspace(props: {
   onRemoveReferenceImage: (referenceImageId: string) => void
   onReferenceImageError: (message: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
+  onVersionCountChange?: (value: GenerationVersionCount) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
   onToggleFavorite: (image: ImageRecord) => void
+  onArchiveImage?: (image: ImageRecord) => Promise<void>
   onRevealImage: (image: ImageRecord) => Promise<unknown>
   onPreviewImage: (image: ImageRecord) => void
   onViewImageDetails: (image: ImageRecord) => void
@@ -80,10 +92,13 @@ export function TopicWorkspace(props: {
   onFavoriteFilterChange: (value: boolean) => void
 }) {
   const canGenerate = Boolean(props.promptValue.trim())
-  const isGenerating =
-    props.isCreatingGeneration ||
-    props.job?.status === "queued" ||
-    props.job?.status === "running"
+  const activeJobCount = activeGenerationJobCount(
+    props.jobs ?? (props.job ? [props.job] : [])
+  )
+  const isGenerating = props.isCreatingGeneration || activeJobCount > 0
+  const generatingPlaceholderCount = props.isCreatingGeneration
+    ? (props.selectedVersionCount ?? 1)
+    : activeJobCount
   const availableReferenceSlots =
     maxReferenceImages - props.referenceImages.length
   const referenceImageDropzone = useDropzone({
@@ -157,9 +172,11 @@ export function TopicWorkspace(props: {
           images={props.images}
           isLoading={props.isLoadingImages}
           isGenerating={isGenerating}
+          generatingPlaceholderCount={generatingPlaceholderCount}
           favoriteOnly={props.favoriteOnly}
           onFavoriteFilterChange={props.onFavoriteFilterChange}
           onToggleFavorite={props.onToggleFavorite}
+          onArchiveImage={props.onArchiveImage}
           onPreviewImage={props.onPreviewImage}
           onViewImageDetails={props.onViewImageDetails}
         />
@@ -169,12 +186,14 @@ export function TopicWorkspace(props: {
             promptValue={props.promptValue}
             referenceImages={props.referenceImages}
             selectedAspectRatio={props.selectedAspectRatio}
+            selectedVersionCount={props.selectedVersionCount ?? 1}
             isEnhancing={props.isEnhancing}
             isGenerating={isGenerating}
             canGenerate={canGenerate}
             onPromptChange={props.onPromptChange}
             onRemoveReferenceImage={props.onRemoveReferenceImage}
             onAspectRatioChange={props.onAspectRatioChange}
+            onVersionCountChange={props.onVersionCountChange}
             onEnhancePrompt={props.onEnhancePrompt}
             onGenerate={props.onGenerate}
             referenceImageDropzone={referenceImageDropzone}
@@ -234,6 +253,7 @@ function PromptComposer(props: {
   promptValue: string
   referenceImages: Array<ReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
+  selectedVersionCount: GenerationVersionCount
   isEnhancing: boolean
   isGenerating: boolean
   canGenerate: boolean
@@ -241,6 +261,7 @@ function PromptComposer(props: {
   onPromptChange: (value: string) => void
   onRemoveReferenceImage: (referenceImageId: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
+  onVersionCountChange?: (value: GenerationVersionCount) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
 }) {
@@ -329,6 +350,31 @@ function PromptComposer(props: {
                 {aspectRatioOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label} {option.description}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={String(props.selectedVersionCount)}
+            onValueChange={(value) =>
+              props.onVersionCountChange?.(
+                Number(value) as GenerationVersionCount
+              )
+            }
+          >
+            <SelectTrigger
+              className="w-full text-xs sm:w-24"
+              aria-label="Versions"
+            >
+              <SelectValue placeholder="Versions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {generationVersionOptions.map((option) => (
+                  <SelectItem key={option.value} value={String(option.value)}>
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -448,9 +494,11 @@ function GalleryCanvas(props: {
   images: Array<ImageRecord>
   isLoading: boolean
   isGenerating: boolean
+  generatingPlaceholderCount: number
   favoriteOnly: boolean
   onFavoriteFilterChange: (value: boolean) => void
   onToggleFavorite: (image: ImageRecord) => void
+  onArchiveImage?: (image: ImageRecord) => Promise<void>
   onPreviewImage: (image: ImageRecord) => void
   onViewImageDetails: (image: ImageRecord) => void
 }) {
@@ -478,7 +526,14 @@ function GalleryCanvas(props: {
 
         {!props.isLoading && (props.images.length > 0 || props.isGenerating) ? (
           <div className="grid grid-cols-3 gap-3">
-            {props.isGenerating ? <GeneratingImageCard /> : null}
+            {props.isGenerating
+              ? Array.from(
+                  { length: Math.max(1, props.generatingPlaceholderCount) },
+                  (_, index) => (
+                    <GeneratingImageCard key={`generating-${index}`} />
+                  )
+                )
+              : null}
             {props.images.map((image, index) => {
               const highPriorityCount = props.isGenerating ? 2 : 3
 
@@ -489,6 +544,7 @@ function GalleryCanvas(props: {
                   fetchPriority={index < highPriorityCount ? "high" : undefined}
                   onPreviewImage={props.onPreviewImage}
                   onToggleFavorite={props.onToggleFavorite}
+                  onArchiveImage={props.onArchiveImage}
                   onViewImageDetails={props.onViewImageDetails}
                 />
               )
@@ -505,6 +561,7 @@ function GalleryImageCard(props: {
   fetchPriority: "high" | undefined
   onPreviewImage: (image: ImageRecord) => void
   onToggleFavorite: (image: ImageRecord) => void
+  onArchiveImage?: (image: ImageRecord) => Promise<void>
   onViewImageDetails: (image: ImageRecord) => void
 }) {
   const srcSet = imageSrcSet(props.image)
@@ -553,6 +610,28 @@ function GalleryImageCard(props: {
           <span>{formatDate(props.image.createdAt)}</span>
         </div>
       </div>
+
+      {props.onArchiveImage ? (
+        <div className="absolute top-1.5 left-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+          <ConfirmationDialog
+            title="Archive image?"
+            description={`Archive “${props.image.title}”? You can restore it later from Settings.`}
+            confirmLabel="Archive"
+            onConfirm={() => props.onArchiveImage?.(props.image)}
+            trigger={
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="secondary"
+                aria-label={`Archive ${props.image.title}`}
+                title="Archive"
+              >
+                <Archive className="text-destructive" />
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
 
       <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         <Button

@@ -149,6 +149,20 @@ describe("framebook api client", () => {
     )
   })
 
+  it("deletes an image", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ deleted: true, imageId: "image-1" }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.deleteImage("image/with slash")
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/images/image%2Fwith%20slash",
+      expect.objectContaining({ method: "DELETE" })
+    )
+  })
+
   it("can send an optional image title when creating a generation", async () => {
     const fetcher = vi.fn(() =>
       Promise.resolve(Response.json({ job: { id: "job-1" } }))
@@ -167,6 +181,29 @@ describe("framebook api client", () => {
         body: JSON.stringify({
           rawPrompt: "A rainy hill station market at dusk",
           title: "Hill Station Market",
+        }),
+      })
+    )
+  })
+
+  it("can send the selected generation version count", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" }, jobs: [] }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.createGeneration("topic-1", {
+      rawPrompt: "A rainy hill station market at dusk",
+      versionCount: 4,
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1/generations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          rawPrompt: "A rainy hill station market at dusk",
+          versionCount: 4,
         }),
       })
     )

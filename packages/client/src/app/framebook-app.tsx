@@ -35,6 +35,7 @@ import type { TopicDraft } from "@app/lib/topic-form"
 import type {
   AspectRatio,
   GenerationJob,
+  GenerationVersionCount,
   ImageRecord,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
@@ -92,6 +93,8 @@ export function FramebookApp({
   const referenceImagesRef = useRef(referenceImages)
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
+  const [selectedVersionCount, setSelectedVersionCount] =
+    useState<GenerationVersionCount>(1)
   const [favoriteOnly, setFavoriteOnly] = useState(false)
   const [isLoadingTopics, setIsLoadingTopics] = useState(true)
   const [isLoadingImages, setIsLoadingImages] = useState(false)
@@ -104,7 +107,7 @@ export function FramebookApp({
   )
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [isCreatingGeneration, setIsCreatingGeneration] = useState(false)
-  const [job, setJob] = useState<GenerationJob | null>(null)
+  const [jobs, setJobs] = useState<Array<GenerationJob>>([])
   const [error, setError] = useState<string | null>(null)
   const [previewImageId, setPreviewImageId] = useState<string | null>(null)
   const [detailImage, setDetailImage] = useState<ImageRecord | null>(null)
@@ -138,8 +141,14 @@ export function FramebookApp({
     Boolean(currentRouteTopicId ?? activeTopicId) &&
     isLoadingTopics &&
     !activeTopic
-  const activeGenerationJobId =
-    job && isActiveGenerationJob(job) ? job.id : null
+  const activeGenerationJobs = useMemo(
+    () => jobs.filter(isActiveGenerationJob),
+    [jobs]
+  )
+  const activeGenerationJobIds = useMemo(
+    () => activeGenerationJobs.map((generationJob) => generationJob.id),
+    [activeGenerationJobs]
+  )
   const isStarredImagesLoading =
     isLoadingStarredImages ||
     (isStarredImagesScreen(screen) && !hasLoadedStarredImages)
@@ -202,29 +211,52 @@ export function FramebookApp({
     }
   }, [])
 
-  const finishGenerationJob = useCallback(
-    async (finishedJob: GenerationJob) => {
-      if (finishedJob.status === "succeeded") {
-        await Promise.all([
-          loadTopics(),
-          activeTopicId === finishedJob.topicId
-            ? loadImages(finishedJob.topicId, favoriteOnly)
-            : Promise.resolve(),
-        ])
-        toast.dismiss(generationToastId)
-        toast.success("Image generated")
+  const finishGenerationJobs = useCallback(
+    async (finishedJobs: Array<GenerationJob>) => {
+      const succeededJobs = finishedJobs.filter(
+        (generationJob) => generationJob.status === "succeeded"
+      )
+      const failedJobs = finishedJobs.filter(
+        (generationJob) => generationJob.status === "failed"
+      )
+      const topicIdsToRefresh = new Set(
+        finishedJobs.map((generationJob) => generationJob.topicId)
+      )
+
+      await Promise.all([
+        loadTopics(),
+        ...Array.from(topicIdsToRefresh).map((topicId) =>
+          activeTopicId === topicId
+            ? loadImages(topicId, favoriteOnly)
+            : Promise.resolve()
+        ),
+      ])
+
+      toast.dismiss(generationToastId)
+
+      if (failedJobs.length === 0) {
+        toast.success(
+          succeededJobs.length > 1
+            ? `${succeededJobs.length} images generated`
+            : "Image generated"
+        )
         return
       }
 
-      if (finishedJob.status === "failed") {
-        toast.dismiss(generationToastId)
-        toast.error("Generation failed", {
-          description: finishedJob.error ?? "Your prompt is safe to retry.",
+      if (succeededJobs.length > 0) {
+        toast.error("Some generations failed", {
+          description: `${succeededJobs.length} succeeded, ${failedJobs.length} failed.`,
         })
-        setError(
-          finishedJob.error || "Generation failed, but your prompt is safe."
-        )
+        setError(failedJobs[0]?.error || "Some generations failed.")
+        return
       }
+
+      toast.error("Generation failed", {
+        description: failedJobs[0]?.error ?? "Your prompt is safe to retry.",
+      })
+      setError(
+        failedJobs[0]?.error || "Generation failed, but your prompt is safe."
+      )
     },
     [activeTopicId, favoriteOnly, loadImages, loadTopics]
   )
@@ -287,7 +319,7 @@ export function FramebookApp({
 
   useEffect(() => {
     if (!activeTopic?.id) {
-      setJob(null)
+      setJobs([])
       return
     }
 
@@ -304,20 +336,16 @@ export function FramebookApp({
           return
         }
 
-        const activeJob = response.jobs.length > 0 ? response.jobs[0] : null
-        setJob((current) => {
-          if (current?.topicId === topicId && isActiveGenerationJob(current)) {
-            return current
-          }
+        setJobs((currentJobs) => [
+          ...currentJobs.filter(
+            (generationJob) =>
+              generationJob.topicId !== topicId ||
+              !isActiveGenerationJob(generationJob)
+          ),
+          ...response.jobs,
+        ])
 
-          if (activeJob) {
-            return activeJob
-          }
-
-          return current?.topicId === topicId ? current : null
-        })
-
-        if (!activeJob) {
+        if (response.jobs.length === 0) {
           await Promise.all([loadTopics(), loadImages(topicId, favoriteOnly)])
         }
       } catch (requestError) {
@@ -335,25 +363,39 @@ export function FramebookApp({
   }, [activeTopic?.id, favoriteOnly, loadImages, loadTopics])
 
   useEffect(() => {
-    if (!activeGenerationJobId) {
+    if (activeGenerationJobIds.length === 0) {
       return
     }
 
     let cancelled = false
-    const jobId = activeGenerationJobId
+    const jobIds = activeGenerationJobIds
 
-    async function pollActiveGeneration() {
+    async function pollActiveGenerations() {
       try {
-        const response = await framebookApi.getGenerationJob(jobId)
+        const responses = await Promise.all(
+          jobIds.map((jobId) => framebookApi.getGenerationJob(jobId))
+        )
+        const polledJobs = responses.map((response) => response.job)
 
         if (cancelled) {
           return
         }
 
-        setJob(response.job)
+        setJobs((currentJobs) =>
+          currentJobs.map(
+            (generationJob) =>
+              polledJobs.find(
+                (polledJob) => polledJob.id === generationJob.id
+              ) ?? generationJob
+          )
+        )
 
-        if (!isActiveGenerationJob(response.job)) {
-          await finishGenerationJob(response.job)
+        const finishedJobs = polledJobs.filter(
+          (generationJob) => !isActiveGenerationJob(generationJob)
+        )
+
+        if (finishedJobs.length === polledJobs.length) {
+          await finishGenerationJobs(finishedJobs)
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -363,15 +405,15 @@ export function FramebookApp({
     }
 
     const intervalId = window.setInterval(() => {
-      void pollActiveGeneration()
+      void pollActiveGenerations()
     }, generationPollIntervalMs)
-    void pollActiveGeneration()
+    void pollActiveGenerations()
 
     return () => {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [activeGenerationJobId, finishGenerationJob])
+  }, [activeGenerationJobIds, finishGenerationJobs])
 
   useEffect(() => {
     if (currentRouteScreen !== "image-detail" || !currentRouteImageId) {
@@ -656,9 +698,14 @@ export function FramebookApp({
 
     setError(null)
     setIsCreatingGeneration(true)
-    toast("Your image is being generated", {
-      id: generationToastId,
-    })
+    toast(
+      selectedVersionCount > 1
+        ? `${selectedVersionCount} images are being generated`
+        : "Your image is being generated",
+      {
+        id: generationToastId,
+      }
+    )
     try {
       const submittedUserPrompt =
         userPrompt.trim() || submittedPromptValue.trim()
@@ -670,10 +717,14 @@ export function FramebookApp({
           rawPrompt: submittedUserPrompt,
           enhancedPrompt: submittedGenerationPrompt,
           aspectRatio: selectedAspectRatio,
+          versionCount: selectedVersionCount,
         },
         referenceImages.map((referenceImage) => referenceImage.file)
       )
-      setJob(response.job)
+      const responseJobs = (
+        response as { job: GenerationJob; jobs?: Array<GenerationJob> }
+      ).jobs
+      setJobs(responseJobs ?? [response.job])
       setUserPrompt("")
       setGenerationPrompt("")
       setPromptMode("user")
@@ -851,8 +902,9 @@ export function FramebookApp({
                 promptValue={promptValue}
                 referenceImages={referenceImages}
                 selectedAspectRatio={selectedAspectRatio}
+                selectedVersionCount={selectedVersionCount}
                 favoriteOnly={favoriteOnly}
-                job={job}
+                jobs={jobs}
                 isEnhancing={isEnhancing}
                 isCreatingGeneration={isCreatingGeneration}
                 isLoadingImages={isLoadingImages}
@@ -864,6 +916,8 @@ export function FramebookApp({
                 onRemoveReferenceImage={removeReferenceImage}
                 onReferenceImageError={showReferenceImageError}
                 onAspectRatioChange={setSelectedAspectRatio}
+                onVersionCountChange={setSelectedVersionCount}
+                onArchiveImage={archiveImage}
                 onEnhancePrompt={enhanceCurrentPrompt}
                 onGenerate={generateCurrentPrompt}
                 onToggleFavorite={toggleFavorite}

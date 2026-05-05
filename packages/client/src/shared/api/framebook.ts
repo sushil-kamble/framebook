@@ -1,6 +1,8 @@
 import type {
   CreateGenerationRequest,
+  CreateGenerationResponse,
   CreateTopicRequest,
+  DeleteImageResponse,
   EnhancePromptRequest,
   EnhancePromptResponse,
   GenerationJobListResponse,
@@ -129,7 +131,7 @@ export function createFramebookApi(
           ? generationFormData(input, referenceImages)
           : JSON.stringify(input)
 
-      return request<GenerationJobResponse>(
+      return request<CreateGenerationResponse>(
         `/api/topics/${encodeURIComponent(topicId)}/generations`,
         {
           method: "POST",
@@ -165,6 +167,14 @@ export function createFramebookApi(
         `/api/images/${encodeURIComponent(imageId)}`
       )
     },
+    async deleteImage(imageId: string) {
+      return request<DeleteImageResponse>(
+        `/api/images/${encodeURIComponent(imageId)}`,
+        {
+          method: "DELETE",
+        }
+      )
+    },
     async revealImage(imageId: string) {
       return request<RevealImageResponse>(
         `/api/images/${encodeURIComponent(imageId)}/reveal`,
@@ -185,6 +195,11 @@ function generationFormData(
   appendFormField(formData, "enhancedPrompt", input.enhancedPrompt)
   appendFormField(formData, "title", input.title)
   appendFormField(formData, "aspectRatio", input.aspectRatio)
+  appendFormField(
+    formData,
+    "versionCount",
+    input.versionCount === undefined ? undefined : String(input.versionCount)
+  )
 
   for (const file of referenceImages) {
     formData.append("referenceImages", file, file.name)

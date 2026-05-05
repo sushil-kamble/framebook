@@ -2,6 +2,10 @@ export const aspectRatios = ["1:1", "3:4", "4:3", "16:9"] as const
 
 export type AspectRatio = (typeof aspectRatios)[number]
 
+export const generationVersionCounts = [1, 2, 4] as const
+
+export type GenerationVersionCount = (typeof generationVersionCounts)[number]
+
 export const enhancerModes = [
   "balanced",
   "storyboard",
@@ -95,6 +99,9 @@ export interface GenerationJob {
   referenceImages: Array<GenerationReferenceImage>
   imageId: string | null
   error: string | null
+  batchId?: string
+  versionIndex?: number
+  versionCount?: GenerationVersionCount
   createdAt: string
   updatedAt: string
 }
@@ -126,6 +133,11 @@ export interface ImageResponse {
   image: ImageRecord
 }
 
+export interface DeleteImageResponse {
+  deleted: boolean
+  imageId: string
+}
+
 export interface EnhancePromptRequest {
   rawPrompt: string
   aspectRatio?: AspectRatio
@@ -142,6 +154,12 @@ export interface CreateGenerationRequest {
   enhancedPrompt?: string
   title?: string
   aspectRatio?: AspectRatio
+  versionCount?: GenerationVersionCount
+}
+
+export interface CreateGenerationResponse {
+  job: GenerationJob
+  jobs: Array<GenerationJob>
 }
 
 export interface GenerationJobResponse {

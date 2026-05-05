@@ -461,6 +461,54 @@ describe("framebook service", () => {
     })
   })
 
+  it("deletes archived image records and local image files", async () => {
+    const topic = await createTopic(service)
+    const fileName = "delete-me.png"
+    await writePng(path.join(dataDir, "images", topic.id, fileName), {
+      width: 1200,
+      height: 900,
+    })
+    const image = await service.addImageRecord({
+      topicId: topic.id,
+      rawPrompt: "Delete this poster",
+      enhancedPrompt: "Enhanced delete this poster.",
+      finalPrompt: "Enhanced delete this poster.",
+      aspectRatio: "4:3",
+      enhancerMode: "storyboard",
+      fileName,
+      mimeType: "image/png",
+    })
+    await service.listImages(topic.id)
+    await service.updateImage(image.id, { archived: true })
+
+    const originalPath = path.join(dataDir, "images", topic.id, fileName)
+    const variantPath = path.join(
+      dataDir,
+      "images",
+      topic.id,
+      "delete-me-480w.webp"
+    )
+    await expect(access(originalPath)).resolves.toBeUndefined()
+    await expect(access(variantPath)).resolves.toBeUndefined()
+
+    await withServer(service, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/images/${image.id}`, {
+        method: "DELETE",
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({
+        deleted: true,
+        imageId: image.id,
+      })
+    })
+
+    await expect(service.getImage(image.id)).rejects.toThrow("Image not found")
+    await expect(access(originalPath)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(access(variantPath)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(store.listImages()).resolves.toEqual([])
+  })
+
   it("returns 400 for unsupported image variant widths", async () => {
     await withServer(service, async (baseUrl) => {
       const response = await fetch(
@@ -617,6 +665,35 @@ describe("framebook service", () => {
     await expect(
       service.listGenerationJobs(topic.id, { activeOnly: true })
     ).resolves.toEqual([job])
+  })
+
+  it("creates the selected number of generation versions from the trusted count", async () => {
+    const topic = await createTopic(service)
+    const firstJob = await service.createGeneration(topic.id, {
+      rawPrompt: "Generate 10 rainy hill station markets",
+      aspectRatio: "4:3",
+      versionCount: 2,
+    })
+
+    expect(firstJob.jobs).toHaveLength(2)
+    expect(firstJob.jobs.map((job) => job.versionIndex)).toEqual([1, 2])
+    expect(firstJob.jobs.every((job) => job.versionCount === 2)).toBe(true)
+    expect(new Set(firstJob.jobs.map((job) => job.finalPrompt)).size).toBe(1)
+
+    await expect(
+      service.listGenerationJobs(topic.id, { activeOnly: true })
+    ).resolves.toHaveLength(2)
+  })
+
+  it("rejects unsupported generation version counts", async () => {
+    const topic = await createTopic(service)
+
+    await expect(
+      service.createGeneration(topic.id, {
+        rawPrompt: "A rainy hill station market at dusk",
+        versionCount: 3,
+      })
+    ).rejects.toThrow("Generation version count must be 1, 2, or 4")
   })
 
   it("continues auto-started generation jobs without a client poller", async () => {

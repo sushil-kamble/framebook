@@ -1,6 +1,7 @@
 import type {
   AspectRatio,
   EnhancerMode,
+  GenerationVersionCount,
 } from "@framebook/shared/contracts/framebook"
 
 export const aspectRatioOptions: Array<{
@@ -22,6 +23,15 @@ export const enhancerModeOptions: Array<{
   { value: "storyboard", label: "Storyboard" },
   { value: "brand-product", label: "Brand / Product" },
   { value: "doodle-explainer", label: "Doodle / Explainer" },
+]
+
+export const generationVersionOptions: Array<{
+  value: GenerationVersionCount
+  label: string
+}> = [
+  { value: 1, label: "1x" },
+  { value: 2, label: "2x" },
+  { value: 4, label: "4x" },
 ]
 
 export const generationPollIntervalMs = 2000
