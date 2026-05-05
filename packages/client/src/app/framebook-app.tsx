@@ -108,6 +108,7 @@ export function FramebookApp({
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [isCreatingGeneration, setIsCreatingGeneration] = useState(false)
   const [jobs, setJobs] = useState<Array<GenerationJob>>([])
+  const jobsRef = useRef(jobs)
   const [error, setError] = useState<string | null>(null)
   const [previewImageId, setPreviewImageId] = useState<string | null>(null)
   const [detailImage, setDetailImage] = useState<ImageRecord | null>(null)
@@ -164,6 +165,10 @@ export function FramebookApp({
   }, [referenceImages])
 
   useEffect(() => {
+    jobsRef.current = jobs
+  }, [jobs])
+
+  useEffect(() => {
     return () => {
       for (const referenceImage of referenceImagesRef.current) {
         revokeObjectUrl(referenceImage.previewUrl)
@@ -211,14 +216,8 @@ export function FramebookApp({
     }
   }, [])
 
-  const finishGenerationJobs = useCallback(
+  const refreshFinishedGenerationResults = useCallback(
     async (finishedJobs: Array<GenerationJob>) => {
-      const succeededJobs = finishedJobs.filter(
-        (generationJob) => generationJob.status === "succeeded"
-      )
-      const failedJobs = finishedJobs.filter(
-        (generationJob) => generationJob.status === "failed"
-      )
       const topicIdsToRefresh = new Set(
         finishedJobs.map((generationJob) => generationJob.topicId)
       )
@@ -231,6 +230,18 @@ export function FramebookApp({
             : Promise.resolve()
         ),
       ])
+    },
+    [activeTopicId, favoriteOnly, loadImages, loadTopics]
+  )
+
+  const finishGenerationJobs = useCallback(
+    (finishedJobs: Array<GenerationJob>) => {
+      const succeededJobs = finishedJobs.filter(
+        (generationJob) => generationJob.status === "succeeded"
+      )
+      const failedJobs = finishedJobs.filter(
+        (generationJob) => generationJob.status === "failed"
+      )
 
       toast.dismiss(generationToastId)
 
@@ -258,7 +269,7 @@ export function FramebookApp({
         failedJobs[0]?.error || "Generation failed, but your prompt is safe."
       )
     },
-    [activeTopicId, favoriteOnly, loadImages, loadTopics]
+    []
   )
 
   useEffect(() => {
@@ -381,21 +392,29 @@ export function FramebookApp({
           return
         }
 
-        setJobs((currentJobs) =>
-          currentJobs.map(
-            (generationJob) =>
-              polledJobs.find(
-                (polledJob) => polledJob.id === generationJob.id
-              ) ?? generationJob
-          )
+        const nextJobs = jobsRef.current.map(
+          (generationJob) =>
+            polledJobs.find((polledJob) => polledJob.id === generationJob.id) ??
+            generationJob
         )
+        jobsRef.current = nextJobs
+        setJobs(nextJobs)
 
         const finishedJobs = polledJobs.filter(
           (generationJob) => !isActiveGenerationJob(generationJob)
         )
 
-        if (finishedJobs.length === polledJobs.length) {
-          await finishGenerationJobs(finishedJobs)
+        if (finishedJobs.length > 0) {
+          await refreshFinishedGenerationResults(finishedJobs)
+        }
+
+        const activeJobsAfterPoll = nextJobs.filter(isActiveGenerationJob)
+        if (activeJobsAfterPoll.length === 0) {
+          await finishGenerationJobs(
+            nextJobs.filter(
+              (generationJob) => !isActiveGenerationJob(generationJob)
+            )
+          )
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -413,7 +432,11 @@ export function FramebookApp({
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [activeGenerationJobIds, finishGenerationJobs])
+  }, [
+    activeGenerationJobIds,
+    finishGenerationJobs,
+    refreshFinishedGenerationResults,
+  ])
 
   useEffect(() => {
     if (currentRouteScreen !== "image-detail" || !currentRouteImageId) {
@@ -745,6 +768,7 @@ export function FramebookApp({
       const responseJobs = (
         response as { job: GenerationJob; jobs?: Array<GenerationJob> }
       ).jobs
+      jobsRef.current = responseJobs ?? [response.job]
       setJobs(responseJobs ?? [response.job])
       setUserPrompt("")
       setGenerationPrompt("")
