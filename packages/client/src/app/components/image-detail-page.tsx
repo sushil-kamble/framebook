@@ -9,12 +9,7 @@ import {
 import { toast } from "sonner"
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { copyTextToClipboard } from "../lib/share"
-import {
-  formatDate,
-  imageFileUrl,
-  imageReferenceUrl,
-  modeLabel,
-} from "../lib/utils"
+import { formatDate, imageFileUrl, imageReferenceUrl } from "../lib/utils"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
@@ -45,7 +40,7 @@ export function ImageDetailPage(props: {
 
   return (
     <div className="mx-auto flex flex-col gap-5">
-      <header className="flex flex-col gap-3 border-b border-border/60 pb-4">
+      <header className="sticky top-0 z-20 flex flex-col gap-3 border-b border-border/60 bg-background/92 pb-4 backdrop-blur-sm">
         <div className="min-w-0">
           <AppBreadcrumb
             items={[
@@ -120,10 +115,10 @@ export function ImageDetailPage(props: {
           />
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <MetaItem label="Topic" value={image.topicSnapshot.name} />
+            <MetaItem label="Creative mode" value={image.creativeMode.name} />
             <MetaItem label="Prompt source" value={promptSource} />
             <MetaItem label="Aspect ratio" value={image.aspectRatio} />
             <MetaItem label="Created" value={formatDate(image.createdAt)} />
-            <MetaItem label="Mode" value={modeLabel(image.enhancerMode)} />
             <MetaItem label="File" value={image.fileName} />
             <MetaItem label="MIME" value={image.mimeType} />
           </dl>
@@ -240,7 +235,7 @@ function ImageDetailSkeleton() {
       aria-label="Loading image detail"
     >
       {/* Breadcrumb */}
-      <header className="flex flex-col gap-3 border-b border-border/60 pb-4">
+      <header className="sticky top-0 z-20 flex flex-col gap-3 border-b border-border/60 bg-background/92 pb-4 backdrop-blur-sm">
         <div className="flex items-center gap-1.5">
           <Skeleton className="h-4 w-12" />
           <Skeleton className="size-1 rounded-full" />

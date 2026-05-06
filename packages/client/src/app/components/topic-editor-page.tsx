@@ -1,13 +1,10 @@
 import { useState } from "react"
 import { ArrowLeft, Loader2, Pencil } from "lucide-react"
 import { validateTopicDraft } from "@app/lib/topic-form"
-import { aspectRatioOptions, enhancerModeOptions } from "../lib/constants"
+import { aspectRatioOptions, creativeModeOptions } from "../lib/constants"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import type { ReactNode } from "react"
-import type {
-  AspectRatio,
-  EnhancerMode,
-} from "@framebook/shared/contracts/framebook"
+import type { AspectRatio } from "@framebook/shared/contracts/framebook"
 import type { TopicDraft } from "@app/lib/topic-form"
 import { Button } from "@/shared/ui/button"
 import {
@@ -43,6 +40,12 @@ export function TopicEditorPage({
     Partial<Record<keyof TopicDraft, string>>
   >({})
   const [isSaving, setIsSaving] = useState(false)
+  const [hasEditedAspectRatio, setHasEditedAspectRatio] = useState(
+    editor.mode === "edit"
+  )
+  const [hasEditedBasePromptDetails, setHasEditedBasePromptDetails] = useState(
+    editor.mode === "edit"
+  )
 
   const updateDraft = <TKey extends keyof TopicDraft>(
     key: TKey,
@@ -56,6 +59,25 @@ export function TopicEditorPage({
       ...current,
       description: value,
       instruction: value,
+    }))
+  }
+
+  const updateCreativeMode = (creativeModeId: string) => {
+    const mode = creativeModeOptions.find(
+      (candidate) => candidate.id === creativeModeId
+    )
+
+    setDraft((current) => ({
+      ...current,
+      creativeModeId,
+      defaultAspectRatio:
+        !hasEditedAspectRatio && mode
+          ? mode.defaultAspectRatio
+          : current.defaultAspectRatio,
+      basePromptDetails:
+        !hasEditedBasePromptDetails && mode
+          ? mode.basePromptDetails
+          : current.basePromptDetails,
     }))
   }
 
@@ -92,7 +114,7 @@ export function TopicEditorPage({
     <div className="topic-editor-stage relative flex min-h-svh flex-col">
       <div className="topic-editor-vignette pointer-events-none absolute inset-0" />
 
-      <header className="relative z-10 border-b border-border/60 bg-background/92 px-5 py-4 shadow-sm backdrop-blur-sm sm:px-10 lg:px-14">
+      <header className="sticky top-0 z-20 border-b border-border/60 bg-background/92 px-5 py-4 shadow-sm backdrop-blur-sm sm:px-10 lg:px-14">
         <AppBreadcrumb items={breadcrumbItems} />
       </header>
 
@@ -112,43 +134,21 @@ export function TopicEditorPage({
             </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">
+              <CreativeModePicker
+                value={draft.creativeModeId}
+                error={errors.creativeModeId}
+                onChange={updateCreativeMode}
+              />
               <AspectRatioPicker
                 value={draft.defaultAspectRatio}
-                onChange={(value) => updateDraft("defaultAspectRatio", value)}
+                onChange={(value) => {
+                  setHasEditedAspectRatio(true)
+                  updateDraft("defaultAspectRatio", value)
+                }}
               />
-
-              <div className="flex flex-col gap-2">
-                <label
-                  className="text-sm font-semibold"
-                  htmlFor="topic-enhancer-mode"
-                >
-                  Enhancer Mode
-                </label>
-                <Select
-                  value={draft.enhancerMode}
-                  onValueChange={(value) =>
-                    updateDraft("enhancerMode", value as EnhancerMode)
-                  }
-                >
-                  <SelectTrigger
-                    id="topic-enhancer-mode"
-                    className="topic-editor-input w-full"
-                    aria-label="Enhancer Mode"
-                  >
-                    <SelectValue placeholder="Select enhancer mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {enhancerModeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
+
+            <CreativeModePreview creativeModeId={draft.creativeModeId} />
 
             <Field
               label="Description / Topic Instruction"
@@ -168,9 +168,10 @@ export function TopicEditorPage({
             <Field label="Base Prompt Details">
               <Textarea
                 value={draft.basePromptDetails}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setHasEditedBasePromptDetails(true)
                   updateDraft("basePromptDetails", event.target.value)
-                }
+                }}
                 rows={6}
                 className="topic-editor-input min-h-32 resize-y"
                 placeholder="Add reusable prompt details, style notes, constraints, or recurring elements for this topic."
@@ -205,6 +206,63 @@ export function TopicEditorPage({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function CreativeModePicker({
+  value,
+  error,
+  onChange,
+}: {
+  value: string
+  error?: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-semibold" htmlFor="topic-creative-mode">
+        Creative mode
+      </label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger
+          id="topic-creative-mode"
+          className="topic-editor-input w-full"
+          aria-label="Creative mode"
+        >
+          <SelectValue placeholder="Select creative mode" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {creativeModeOptions.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      {error ? <span className="text-xs text-destructive">{error}</span> : null}
+    </div>
+  )
+}
+
+function CreativeModePreview({ creativeModeId }: { creativeModeId: string }) {
+  const mode = creativeModeOptions.find(
+    (option) => option.id === creativeModeId
+  )
+
+  if (!mode) {
+    return null
+  }
+
+  return (
+    <div className="rounded-xl border border-border/45 bg-muted/25 px-3.5 py-3 text-sm">
+      <div className="font-semibold">{mode.name}</div>
+      <p className="mt-1 text-muted-foreground">{mode.summary}</p>
+      <p className="mt-2 text-xs leading-5 text-foreground/70">
+        {mode.creativeDirection}
+      </p>
     </div>
   )
 }

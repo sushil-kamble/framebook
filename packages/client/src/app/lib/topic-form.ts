@@ -1,7 +1,6 @@
 import type {
   AspectRatio,
   CreateTopicRequest,
-  EnhancerMode,
   Topic,
 } from "@framebook/shared/contracts/framebook"
 
@@ -11,7 +10,7 @@ export interface TopicDraft {
   instruction: string
   defaultAspectRatio: AspectRatio
   basePromptDetails: string
-  enhancerMode: EnhancerMode
+  creativeModeId: string
 }
 
 export const defaultTopicDraft: TopicDraft = {
@@ -20,7 +19,7 @@ export const defaultTopicDraft: TopicDraft = {
   instruction: "",
   defaultAspectRatio: "16:9",
   basePromptDetails: "",
-  enhancerMode: "balanced",
+  creativeModeId: "",
 }
 
 export function draftFromTopic(topic: Topic): TopicDraft {
@@ -30,7 +29,7 @@ export function draftFromTopic(topic: Topic): TopicDraft {
     instruction: topic.instruction,
     defaultAspectRatio: topic.defaultAspectRatio,
     basePromptDetails: topic.basePromptDetails,
-    enhancerMode: topic.enhancerMode,
+    creativeModeId: topic.creativeModeId,
   }
 }
 
@@ -41,7 +40,7 @@ export function normalizeTopicDraft(draft: TopicDraft): CreateTopicRequest {
     instruction: draft.instruction.trim(),
     defaultAspectRatio: draft.defaultAspectRatio,
     basePromptDetails: draft.basePromptDetails.trim(),
-    enhancerMode: draft.enhancerMode,
+    creativeModeId: draft.creativeModeId || undefined,
   }
 }
 
@@ -50,10 +49,6 @@ export function validateTopicDraft(draft: TopicDraft) {
 
   if (!draft.name.trim()) {
     errors.name = "Name is required."
-  }
-
-  if (!draft.instruction.trim()) {
-    errors.instruction = "Topic instruction is required."
   }
 
   return errors

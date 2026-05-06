@@ -6,7 +6,7 @@ import {
 } from "../src/app/lib/topic-form"
 
 describe("topic form helpers", () => {
-  it("requires a name and topic instruction", () => {
+  it("requires only a topic name", () => {
     expect(
       validateTopicDraft({
         ...defaultTopicDraft,
@@ -15,7 +15,6 @@ describe("topic form helpers", () => {
       })
     ).toEqual({
       name: "Name is required.",
-      instruction: "Topic instruction is required.",
     })
   })
 

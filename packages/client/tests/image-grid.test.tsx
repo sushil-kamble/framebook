@@ -57,6 +57,7 @@ describe("optimized image grids", () => {
         promptValue=""
         referenceImages={[]}
         selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -70,6 +71,7 @@ describe("optimized image grids", () => {
         onRemoveReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -120,6 +122,7 @@ describe("optimized image grids", () => {
           },
         ]}
         selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -133,6 +136,7 @@ describe("optimized image grids", () => {
         onRemoveReferenceImage={onRemoveReferenceImage}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -164,6 +168,7 @@ describe("optimized image grids", () => {
         promptValue="Use this reference"
         referenceImages={[]}
         selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -177,6 +182,7 @@ describe("optimized image grids", () => {
         onRemoveReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -442,6 +448,7 @@ function PreviewToggleHarness() {
         promptValue=""
         referenceImages={[]}
         selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -455,6 +462,7 @@ function PreviewToggleHarness() {
         onRemoveReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -484,7 +492,7 @@ const topicSummary: TopicSummary = {
   instruction: "Use vintage travel poster style.",
   defaultAspectRatio: "4:3",
   basePromptDetails: "Mountain railway",
-  enhancerMode: "storyboard",
+  creativeModeId: "blue-pin-poster",
   archivedAt: null,
   createdAt: "2026-05-04T10:00:00.000Z",
   updatedAt: "2026-05-04T10:00:00.000Z",
@@ -503,14 +511,19 @@ const imageRecord: ImageRecord = {
   enhancedPrompt: "Enhanced mountain railway.",
   finalPrompt: "Enhanced mountain railway.",
   aspectRatio: "4:3",
-  enhancerMode: "storyboard",
   topicSnapshot: {
     id: "topic-1",
     name: "Travel Posters",
     instruction: "Use vintage travel poster style.",
     defaultAspectRatio: "4:3",
     basePromptDetails: "Mountain railway",
-    enhancerMode: "storyboard",
+    creativeModeId: "blue-pin-poster",
+  },
+  creativeMode: {
+    id: "blue-pin-poster",
+    name: "Blue Pin Poster",
+    basePromptDetails: "Mid-century travel poster.",
+    creativeDirection: "Use bold poster composition.",
   },
   favorite: true,
   archivedAt: null,

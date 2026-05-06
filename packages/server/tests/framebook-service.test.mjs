@@ -47,7 +47,7 @@ describe("framebook service", () => {
         "Use cinematic travel poster style with bold typography space.",
       defaultAspectRatio: "16:9",
       basePromptDetails: "Snowy peaks, rail viaduct, crisp morning light",
-      enhancerMode: "balanced",
+      creativeModeId: "blue-pin-poster",
     })
 
     expect(topic.name).toBe("Travel Poster Study")
@@ -55,11 +55,9 @@ describe("framebook service", () => {
 
     const updated = await service.updateTopic(topic.id, {
       name: "Swiss Alps Posters",
-      enhancerMode: "storyboard",
     })
 
     expect(updated.name).toBe("Swiss Alps Posters")
-    expect(updated.enhancerMode).toBe("storyboard")
 
     const activeTopics = await service.listTopics()
     expect(activeTopics).toHaveLength(1)
@@ -76,6 +74,21 @@ describe("framebook service", () => {
     const unarchived = await service.unarchiveTopic(topic.id)
     expect(unarchived.archivedAt).toBeNull()
     expect(await service.listTopics()).toHaveLength(1)
+  })
+
+  it("creates a topic with only a name", async () => {
+    const topic = await service.createTopic({
+      name: "Only Name",
+    })
+
+    expect(topic).toMatchObject({
+      name: "Only Name",
+      description: "",
+      instruction: "",
+      defaultAspectRatio: "16:9",
+      basePromptDetails: "",
+      creativeModeId: "",
+    })
   })
 
   it("handles concurrent first reads while initializing local metadata", async () => {
@@ -110,7 +123,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
       finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
       aspectRatio: "4:3",
-      enhancerMode: "doodle-explainer",
       fileName: "scooter.svg",
       mimeType: "image/svg+xml",
       favorite: true,
@@ -140,7 +152,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
       finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
       aspectRatio: "4:3",
-      enhancerMode: "doodle-explainer",
       fileName: "scooter.svg",
       mimeType: "image/svg+xml",
       favorite: true,
@@ -172,7 +183,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
       finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
       aspectRatio: "4:3",
-      enhancerMode: "doodle-explainer",
       fileName: "scooter.svg",
       mimeType: "image/svg+xml",
       favorite: true,
@@ -183,7 +193,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced steaming tea stall.",
       finalPrompt: "Enhanced steaming tea stall.",
       aspectRatio: "16:9",
-      enhancerMode: "balanced",
       fileName: "tea.svg",
       mimeType: "image/svg+xml",
       favorite: false,
@@ -219,7 +228,7 @@ describe("framebook service", () => {
       instruction: "Warm editorial food photography.",
       defaultAspectRatio: "1:1",
       basePromptDetails: "",
-      enhancerMode: "brand-product",
+      creativeModeId: "newspaper",
     })
     const archivedTopic = await service.createTopic({
       name: "Archived Ideas",
@@ -227,7 +236,7 @@ describe("framebook service", () => {
       instruction: "Old references.",
       defaultAspectRatio: "16:9",
       basePromptDetails: "",
-      enhancerMode: "balanced",
+      creativeModeId: "fantasy",
     })
     await service.archiveTopic(archivedTopic.id)
 
@@ -237,7 +246,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced rainy scooter ride through coffee estate.",
       finalPrompt: "Enhanced rainy scooter ride through coffee estate.",
       aspectRatio: "4:3",
-      enhancerMode: "doodle-explainer",
       fileName: "scooter.svg",
       mimeType: "image/svg+xml",
       favorite: true,
@@ -249,7 +257,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced steaming momos on a market stall.",
       finalPrompt: "Enhanced steaming momos on a market stall.",
       aspectRatio: "1:1",
-      enhancerMode: "brand-product",
       fileName: "momos.svg",
       mimeType: "image/svg+xml",
       favorite: true,
@@ -261,7 +268,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced unstarred tea garden.",
       finalPrompt: "Enhanced unstarred tea garden.",
       aspectRatio: "4:3",
-      enhancerMode: "storyboard",
       fileName: "tea.svg",
       mimeType: "image/svg+xml",
       favorite: false,
@@ -272,7 +278,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced archived topic image.",
       finalPrompt: "Enhanced archived topic image.",
       aspectRatio: "16:9",
-      enhancerMode: "balanced",
       fileName: "archived.svg",
       mimeType: "image/svg+xml",
       favorite: true,
@@ -284,7 +289,7 @@ describe("framebook service", () => {
     ])
   })
 
-  it("enhances prompts without injecting output settings or quality language", async () => {
+  it("optimizes prompts without injecting topic context or output settings", async () => {
     const topic = await createTopic(service)
     const result = await service.enhanceTopicPrompt(topic.id, {
       rawPrompt: "Morning tea stall in misty hills",
@@ -292,8 +297,10 @@ describe("framebook service", () => {
     })
 
     expect(result.enhancedPrompt).toContain("Morning tea stall in misty hills")
-    expect(result.enhancedPrompt).toContain(topic.instruction)
-    expect(result.enhancedPrompt).toContain("storytelling clarity")
+    expect(result.enhancedPrompt).toContain("Preserve the user's subject")
+    expect(result.enhancedPrompt).not.toContain(topic.instruction)
+    expect(result.enhancedPrompt).not.toContain(topic.basePromptDetails)
+    expect(result.enhancedPrompt).not.toContain("storytelling clarity")
     expect(result.enhancedPrompt).not.toMatch(
       /aspect ratio|16:9|resolution|quality/iu
     )
@@ -354,6 +361,7 @@ describe("framebook service", () => {
     const job = await service.createGeneration(topic.id, {
       rawPrompt: "A red train crossing a stone viaduct in the Swiss Alps",
       aspectRatio: "16:9",
+      creativeModeId: "blue-pin-poster",
     })
 
     expect(job.status).toBe("queued")
@@ -361,6 +369,9 @@ describe("framebook service", () => {
       "A red train crossing a stone viaduct in the Swiss Alps"
     )
     expect(job.finalPrompt).toContain("Aspect ratio: 16:9")
+    expect(job.creativeModeId).toBe("blue-pin-poster")
+    expect(job.finalPrompt).toContain("Creative mode (Blue Pin Poster)")
+    expect(job.finalPrompt).toContain("Mid-century travel poster")
 
     const finishedJob = await service.runGenerationJob(job.id)
     expect(finishedJob.status).toBe("succeeded")
@@ -373,6 +384,10 @@ describe("framebook service", () => {
       title: job.title,
       rawPrompt: "A red train crossing a stone viaduct in the Swiss Alps",
       aspectRatio: "16:9",
+      creativeMode: expect.objectContaining({
+        id: "blue-pin-poster",
+        name: "Blue Pin Poster",
+      }),
       fileName: `${job.id}.png`,
       mimeType: "image/png",
       width: 1,
@@ -414,14 +429,12 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced legacy prompt.",
       finalPrompt: "Enhanced legacy prompt.",
       aspectRatio: "4:3",
-      enhancerMode: "storyboard",
       topicSnapshot: {
         id: topic.id,
         name: topic.name,
         instruction: topic.instruction,
         defaultAspectRatio: topic.defaultAspectRatio,
         basePromptDetails: topic.basePromptDetails,
-        enhancerMode: topic.enhancerMode,
       },
       favorite: true,
       archivedAt: null,
@@ -467,7 +480,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced Swiss rail poster.",
       finalPrompt: "Enhanced Swiss rail poster.",
       aspectRatio: "4:3",
-      enhancerMode: "storyboard",
       fileName,
       mimeType: "image/png",
     })
@@ -500,7 +512,6 @@ describe("framebook service", () => {
       enhancedPrompt: "Enhanced delete this poster.",
       finalPrompt: "Enhanced delete this poster.",
       aspectRatio: "4:3",
-      enhancerMode: "storyboard",
       fileName,
       mimeType: "image/png",
     })
@@ -1026,17 +1037,16 @@ describe("framebook service", () => {
   it("builds the codex app-server prompt enhancement contract", async () => {
     const topic = await createTopic(service)
     const prompt = buildPromptEnhancementPrompt({
-      topic,
       rawPrompt: "A product photo of a ceramic mug",
     })
 
-    expect(prompt).toContain("OpenAI GPT image generation models")
-    expect(prompt).toContain("Return only the final enhanced prompt")
-    expect(prompt).toContain("photorealistic")
-    expect(prompt).toContain("no watermark")
+    expect(prompt).toContain("OpenAI GPT Image 2")
+    expect(prompt).toContain("Return only the optimized prompt text")
+    expect(prompt).toContain("Treat the original user prompt as authoritative")
+    expect(prompt).toContain("visible text")
     expect(prompt).toContain("A product photo of a ceramic mug")
-    expect(prompt).not.toMatch(/intended use/iu)
-    expect(prompt).toContain("not labeled segments")
+    expect(prompt).not.toContain(topic.instruction)
+    expect(prompt).not.toContain(topic.basePromptDetails)
     expect(prompt).not.toMatch(/aspect ratio|1:1|resolution|quality/iu)
   })
 
@@ -1837,7 +1847,7 @@ async function createTopic(service) {
     defaultAspectRatio: "4:3",
     basePromptDetails:
       "Two travelers, one small backpack, recurring red scooter, misty hills",
-    enhancerMode: "storyboard",
+    creativeModeId: "scribble-studio",
   })
 }
 

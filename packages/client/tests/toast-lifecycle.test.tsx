@@ -132,7 +132,54 @@ describe("toast lifecycle", () => {
           .getByRole("button", { name: "Generate" })
           .hasAttribute("disabled")
       ).toBe(true)
+      expect(
+        screen.getByPlaceholderText("Describe the image you want to create...")
+      ).toHaveProperty("value", "")
     })
+
+    await act(() => {
+      resolveGeneration({ job: queuedGenerationJob })
+      return Promise.resolve()
+    })
+  })
+
+  it("keeps pending generation placeholders scoped to the generating topic", async () => {
+    let resolveGeneration: (value: { job: GenerationJob }) => void = () => {}
+    mocks.framebookApi.listTopics.mockResolvedValue({
+      topics: [topicSummary, secondTopicSummary],
+    })
+    mocks.framebookApi.createGeneration.mockReturnValue(
+      new Promise((resolve) => {
+        resolveGeneration = resolve
+      })
+    )
+    const { rerender } = render(
+      <FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />
+    )
+
+    fireEvent.change(
+      await screen.findByPlaceholderText(
+        "Describe the image you want to create..."
+      ),
+      { target: { value: "A mountain railway poster" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Generating image")).toBeTruthy()
+    })
+
+    rerender(
+      <FramebookApp routeScreen="topic" routeTopicId={secondTopicSummary.id} />
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(secondTopicSummary.name).length
+      ).toBeGreaterThan(0)
+    })
+
+    expect(screen.queryByLabelText("Generating image")).toBeNull()
 
     await act(() => {
       resolveGeneration({ job: queuedGenerationJob })
@@ -198,6 +245,9 @@ describe("toast lifecycle", () => {
       expect(mocks.toast.dismiss).toHaveBeenCalledWith("prompt-enhancement")
       expect(mocks.toast.success).toHaveBeenCalledWith("Prompt enhanced")
     })
+    expect(screen.getByDisplayValue("A refined prompt")).toBeTruthy()
+    expect(screen.getByText("Original prompt")).toBeTruthy()
+    expect(screen.getByText("A mountain railway poster")).toBeTruthy()
     expect(mocks.toast.dismiss.mock.invocationCallOrder.at(-1)).toBeLessThan(
       mocks.toast.success.mock.invocationCallOrder.at(-1) ?? 0
     )
@@ -211,7 +261,7 @@ const topicSummary: TopicSummary = {
   instruction: "Use vintage travel poster style.",
   defaultAspectRatio: "4:3",
   basePromptDetails: "Mountain railway",
-  enhancerMode: "storyboard",
+  creativeModeId: "blue-pin-poster",
   archivedAt: null,
   createdAt: "2026-05-04T10:00:00.000Z",
   updatedAt: "2026-05-04T10:00:00.000Z",
@@ -219,6 +269,14 @@ const topicSummary: TopicSummary = {
   favoriteCount: 0,
   latestImageId: null,
   latestImageCreatedAt: null,
+}
+
+const secondTopicSummary: TopicSummary = {
+  ...topicSummary,
+  id: "topic-2",
+  name: "Icon Studies",
+  defaultAspectRatio: "1:1",
+  creativeModeId: "icon-design",
 }
 
 const queuedGenerationJob: GenerationJob = {
@@ -230,6 +288,7 @@ const queuedGenerationJob: GenerationJob = {
   enhancedPrompt: "",
   finalPrompt: "A mountain railway poster",
   aspectRatio: "4:3",
+  creativeModeId: "blue-pin-poster",
   referenceImages: [],
   imageId: null,
   error: null,

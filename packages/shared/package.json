@@ -4,7 +4,11 @@
   "type": "module",
   "exports": {
     "./config/app": "./src/config/app.ts",
-    "./contracts/framebook": "./src/contracts/framebook.ts"
+    "./contracts/framebook": "./src/contracts/framebook.ts",
+    "./creative-modes": {
+      "types": "./src/creative-modes/index.ts",
+      "import": "./src/creative-modes/index.mjs"
+    }
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",

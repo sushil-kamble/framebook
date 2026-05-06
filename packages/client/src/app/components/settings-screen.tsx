@@ -120,7 +120,7 @@ export function SettingsScreen({
     <div className="settings-stage relative min-h-svh overflow-hidden">
       <div className="settings-vignette pointer-events-none absolute inset-0" />
 
-      <header className="relative z-10 border-b border-border/60 bg-background/92 px-4 py-4 shadow-sm backdrop-blur-sm md:px-6">
+      <header className="sticky top-0 z-20 border-b border-border/60 bg-background/92 px-4 py-4 shadow-sm backdrop-blur-sm md:px-6">
         <AppBreadcrumb items={[{ label: "Settings" }]} />
       </header>
 

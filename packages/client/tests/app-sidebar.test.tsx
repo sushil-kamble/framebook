@@ -10,7 +10,6 @@ const baseTopic = (overrides: Partial<TopicSummary> = {}): TopicSummary => ({
   instruction: "",
   defaultAspectRatio: "16:9",
   basePromptDetails: "",
-  enhancerMode: "balanced",
   archivedAt: null,
   createdAt: "2026-04-01T10:00:00.000Z",
   updatedAt: "2026-04-01T10:00:00.000Z",
@@ -19,6 +18,7 @@ const baseTopic = (overrides: Partial<TopicSummary> = {}): TopicSummary => ({
   latestImageId: null,
   latestImageCreatedAt: null,
   ...overrides,
+  creativeModeId: overrides.creativeModeId ?? "animal-infographic",
 })
 
 describe("sidebar layout", () => {

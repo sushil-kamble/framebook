@@ -15,6 +15,7 @@
     "typecheck": "node -e \"console.log('No TypeScript sources in @framebook/server yet')\""
   },
   "dependencies": {
+    "@framebook/shared": "workspace:*",
     "busboy": "^1.6.0",
     "sharp": "^0.34.5"
   }

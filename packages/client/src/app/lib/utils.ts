@@ -1,19 +1,11 @@
 import { framebookApiUrl } from "@shared/api/framebook"
-import { enhancerModeOptions } from "./constants"
 import type {
-  EnhancerMode,
   ImageRecord,
   ImageVariant,
 } from "@framebook/shared/contracts/framebook"
 import type { FramebookRouteState, Screen } from "./types"
 
 const imageVariantWidthPattern = /-(320|480|768|1024)w\.webp$/u
-
-export function modeLabel(mode: EnhancerMode) {
-  return (
-    enhancerModeOptions.find((option) => option.value === mode)?.label ?? mode
-  )
-}
 
 export function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-US", {

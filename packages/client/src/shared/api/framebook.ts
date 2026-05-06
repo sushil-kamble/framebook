@@ -195,6 +195,7 @@ function generationFormData(
   appendFormField(formData, "enhancedPrompt", input.enhancedPrompt)
   appendFormField(formData, "title", input.title)
   appendFormField(formData, "aspectRatio", input.aspectRatio)
+  appendFormField(formData, "creativeModeId", input.creativeModeId)
   appendFormField(
     formData,
     "versionCount",

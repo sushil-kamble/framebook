@@ -6,16 +6,14 @@ export const generationVersionCounts = [1, 2, 4] as const
 
 export type GenerationVersionCount = (typeof generationVersionCounts)[number]
 
-export const enhancerModes = [
-  "balanced",
-  "storyboard",
-  "brand-product",
-  "doodle-explainer",
-] as const
-
-export type EnhancerMode = (typeof enhancerModes)[number]
-
 export type GenerationJobStatus = "queued" | "running" | "succeeded" | "failed"
+
+export interface CreativeModeSnapshot {
+  id: string
+  name: string
+  basePromptDetails: string
+  creativeDirection: string
+}
 
 export interface Topic {
   id: string
@@ -24,7 +22,7 @@ export interface Topic {
   instruction: string
   defaultAspectRatio: AspectRatio
   basePromptDetails: string
-  enhancerMode: EnhancerMode
+  creativeModeId: string
   archivedAt: string | null
   createdAt: string
   updatedAt: string
@@ -43,7 +41,7 @@ export interface TopicSnapshot {
   instruction: string
   defaultAspectRatio: AspectRatio
   basePromptDetails: string
-  enhancerMode: EnhancerMode
+  creativeModeId: string
 }
 
 export interface ImageVariant {
@@ -73,8 +71,8 @@ export interface ImageRecord {
   enhancedPrompt: string
   finalPrompt: string
   aspectRatio: AspectRatio
-  enhancerMode: EnhancerMode
   topicSnapshot: TopicSnapshot
+  creativeMode: CreativeModeSnapshot
   favorite: boolean
   archivedAt: string | null
   fileName: string
@@ -96,6 +94,7 @@ export interface GenerationJob {
   enhancedPrompt: string
   finalPrompt: string
   aspectRatio: AspectRatio
+  creativeModeId: string
   referenceImages: Array<GenerationReferenceImage>
   imageId: string | null
   error: string | null
@@ -109,10 +108,10 @@ export interface GenerationJob {
 export interface CreateTopicRequest {
   name: string
   description?: string
-  instruction: string
-  defaultAspectRatio: AspectRatio
+  instruction?: string
+  defaultAspectRatio?: AspectRatio
   basePromptDetails?: string
-  enhancerMode: EnhancerMode
+  creativeModeId?: string
 }
 
 export type UpdateTopicRequest = Partial<CreateTopicRequest>
@@ -155,6 +154,7 @@ export interface CreateGenerationRequest {
   title?: string
   aspectRatio?: AspectRatio
   versionCount?: GenerationVersionCount
+  creativeModeId?: string
 }
 
 export interface CreateGenerationResponse {

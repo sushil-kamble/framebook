@@ -13,7 +13,11 @@ import {
 } from "lucide-react"
 import { useDropzone } from "react-dropzone"
 import { cn } from "@shared/lib/utils"
-import { aspectRatioOptions, generationVersionOptions } from "../lib/constants"
+import {
+  aspectRatioOptions,
+  creativeModeOptions,
+  generationVersionOptions,
+} from "../lib/constants"
 import {
   formatDate,
   imageFileUrl,
@@ -63,9 +67,13 @@ export function TopicWorkspace(props: {
   topic: TopicSummary
   images: Array<ImageRecord>
   promptValue: string
+  originalPromptValue?: string
+  isOptimizedPrompt?: boolean
   referenceImages: Array<ReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
+  selectedCreativeModeId: string
   selectedVersionCount?: GenerationVersionCount
+  creatingGenerationVersionCount?: GenerationVersionCount
   favoriteOnly: boolean
   job?: GenerationJob | null
   jobs?: Array<GenerationJob>
@@ -80,6 +88,7 @@ export function TopicWorkspace(props: {
   onRemoveReferenceImage: (referenceImageId: string) => void
   onReferenceImageError: (message: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
+  onCreativeModeChange: (value: string) => void
   onVersionCountChange?: (value: GenerationVersionCount) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
@@ -97,7 +106,7 @@ export function TopicWorkspace(props: {
   )
   const isGenerating = props.isCreatingGeneration || activeJobCount > 0
   const generatingPlaceholderCount = props.isCreatingGeneration
-    ? (props.selectedVersionCount ?? 1)
+    ? (props.creatingGenerationVersionCount ?? props.selectedVersionCount ?? 1)
     : activeJobCount
   const availableReferenceSlots =
     maxReferenceImages - props.referenceImages.length
@@ -136,7 +145,7 @@ export function TopicWorkspace(props: {
           isRejecting={referenceImageDropzone.isDragReject}
         />
       ) : null}
-      <header className="flex flex-col gap-2 border-b border-border/60 pb-2 lg:flex-row lg:items-center lg:justify-between">
+      <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-border/60 bg-background/92 pb-2 backdrop-blur-sm lg:flex-row lg:items-center lg:justify-between">
         <AppBreadcrumb
           items={[
             { label: "Topics", onClick: props.onBack },
@@ -184,8 +193,11 @@ export function TopicWorkspace(props: {
         <div className="flex flex-col gap-2">
           <PromptComposer
             promptValue={props.promptValue}
+            originalPromptValue={props.originalPromptValue}
+            isOptimizedPrompt={props.isOptimizedPrompt}
             referenceImages={props.referenceImages}
             selectedAspectRatio={props.selectedAspectRatio}
+            selectedCreativeModeId={props.selectedCreativeModeId}
             selectedVersionCount={props.selectedVersionCount ?? 1}
             isEnhancing={props.isEnhancing}
             isGenerating={isGenerating}
@@ -193,6 +205,7 @@ export function TopicWorkspace(props: {
             onPromptChange={props.onPromptChange}
             onRemoveReferenceImage={props.onRemoveReferenceImage}
             onAspectRatioChange={props.onAspectRatioChange}
+            onCreativeModeChange={props.onCreativeModeChange}
             onVersionCountChange={props.onVersionCountChange}
             onEnhancePrompt={props.onEnhancePrompt}
             onGenerate={props.onGenerate}
@@ -210,7 +223,7 @@ export function TopicWorkspaceSkeleton() {
       className="flex h-[calc(100svh-2rem)] w-full max-w-none flex-col gap-2"
       aria-label="Loading topic workspace"
     >
-      <header className="flex flex-col gap-2 border-b border-border/60 pb-2 lg:flex-row lg:items-center lg:justify-between">
+      <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-border/60 bg-background/92 pb-2 backdrop-blur-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-1.5">
           <Skeleton className="h-4 w-12" />
           <Skeleton className="size-1 rounded-full" />
@@ -251,8 +264,11 @@ export function TopicWorkspaceSkeleton() {
 
 function PromptComposer(props: {
   promptValue: string
+  originalPromptValue?: string
+  isOptimizedPrompt?: boolean
   referenceImages: Array<ReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
+  selectedCreativeModeId: string
   selectedVersionCount: GenerationVersionCount
   isEnhancing: boolean
   isGenerating: boolean
@@ -261,12 +277,15 @@ function PromptComposer(props: {
   onPromptChange: (value: string) => void
   onRemoveReferenceImage: (referenceImageId: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
+  onCreativeModeChange: (value: string) => void
   onVersionCountChange?: (value: GenerationVersionCount) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
 }) {
   const availableReferenceSlots =
     maxReferenceImages - props.referenceImages.length
+  const showOriginalPrompt =
+    props.isOptimizedPrompt && Boolean(props.originalPromptValue?.trim())
 
   return (
     <div
@@ -329,6 +348,16 @@ function PromptComposer(props: {
             <ImagePlus data-icon="inline-start" />
           </Button>
         </div>
+        {showOriginalPrompt ? (
+          <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs">
+            <div className="font-medium text-muted-foreground">
+              Original prompt
+            </div>
+            <p className="mt-1 line-clamp-3 text-foreground/75">
+              {props.originalPromptValue}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -375,6 +404,27 @@ function PromptComposer(props: {
                 {generationVersionOptions.map((option) => (
                   <SelectItem key={option.value} value={String(option.value)}>
                     {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={props.selectedCreativeModeId}
+            onValueChange={props.onCreativeModeChange}
+          >
+            <SelectTrigger
+              className="w-full text-xs sm:w-52"
+              aria-label="Creative mode"
+            >
+              <SelectValue placeholder="Mode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {creativeModeOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.name}
                   </SelectItem>
                 ))}
               </SelectGroup>

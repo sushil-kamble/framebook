@@ -14,6 +14,26 @@ const enhancerServiceTier = "fast"
 const defaultAppServerArgs = ["--disable", "plugins", "--disable", "apps"]
 const defaultTimeoutMs = 10 * 60 * 1000
 const defaultImageFileTimeoutMs = 10_000
+const imagePromptOptimizerSystemPrompt = `You are Framebook's prompt optimizer for OpenAI GPT Image 2. Your job is to polish image prompts for model performance while preserving the user's creative intent exactly.
+
+Return only the optimized prompt text, with no markdown, no quotes, no headings, no explanation, and no preamble.
+
+Core rules:
+- Treat the original user prompt as authoritative.
+- Preserve the user's subject, style, constraints, named entities, requested visible text, negative instructions, and edit intent.
+- Do not add unrelated subjects, styles, settings, brands, logos, camera gear, mood changes, or story details.
+- Do not use topic names, workspace instructions, or reusable details as creative input.
+- If the prompt is already detailed, keep it close to the original and only improve ordering or clarity.
+
+Optimization checklist:
+- Use clear image-generation wording such as draw, generate, or edit when it fits the original request.
+- Organize the prompt in a maintainable order: subject, action, setting/background, composition/framing, lighting/color, materials/texture, style/medium, constraints.
+- Make composition and focal point explicit when the user implies them.
+- Add lighting, material, texture, color, and framing details only when they support the original prompt.
+- If visible text is requested, preserve the exact text and specify placement, style, contrast, and readability.
+- If visible text is not requested, avoid unintended text, captions, watermarks, and logos.
+- For edits or reference-driven prompts, preserve requested identity, pose, composition, product details, and anything the user says to keep.
+- Keep the result concise, concrete, and editable.`
 const pngMimeType = "image/png"
 const onePixelPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -98,6 +118,7 @@ export class CodexAppServerImageClient {
     rawPrompt,
     aspectRatio,
     topic,
+    creativeMode,
     referenceImages,
     outputDir,
     fileName,
@@ -111,6 +132,7 @@ export class CodexAppServerImageClient {
         rawPrompt,
         aspectRatio,
         topic,
+        creativeMode,
         referenceImages,
         outputPath,
         targetFileName,
@@ -124,6 +146,7 @@ export class CodexAppServerImageClient {
           rawPrompt,
           aspectRatio,
           topic,
+          creativeMode,
           referenceImages,
           outputPath,
           targetFileName,
@@ -134,6 +157,7 @@ export class CodexAppServerImageClient {
           rawPrompt,
           aspectRatio,
           topic,
+          creativeMode,
           referenceImages,
           outputPath,
           targetFileName,
@@ -149,6 +173,7 @@ export class CodexAppServerImageClient {
     rawPrompt,
     aspectRatio,
     topic,
+    creativeMode,
     referenceImages,
     outputPath,
     targetFileName,
@@ -172,6 +197,7 @@ export class CodexAppServerImageClient {
           rawPrompt,
           aspectRatio,
           topic,
+          creativeMode,
           referenceImages,
           outputPath,
         }),
@@ -260,10 +286,10 @@ export class CodexAppServerImageClient {
     }
   }
 
-  async enhancePrompt({ topic, rawPrompt }) {
+  async enhancePrompt({ rawPrompt }) {
     const enhancement = this.enhancerQueue.then(
-      () => this.runEnhancerTurn({ topic, rawPrompt }),
-      () => this.runEnhancerTurn({ topic, rawPrompt })
+      () => this.runEnhancerTurn({ rawPrompt }),
+      () => this.runEnhancerTurn({ rawPrompt })
     )
     this.enhancerQueue = enhancement.catch(() => {})
 
@@ -356,13 +382,12 @@ export class CodexAppServerImageClient {
     }
   }
 
-  async runEnhancerTurn({ topic, rawPrompt }) {
+  async runEnhancerTurn({ rawPrompt }) {
     let appServer
     try {
       appServer = await this.prewarmEnhancer()
       const result = await appServer.runTurnOnCurrentThread({
         userText: buildPromptEnhancementPrompt({
-          topic,
           rawPrompt,
         }),
         timeoutMs: Math.min(this.timeoutMs, 120_000),
@@ -842,7 +867,6 @@ ${outputPath}
 Untrusted creative input begins.
 Topic: ${topic.name}${topicDescription}
 Topic instruction: ${topic.instruction}${basePromptDetails}
-Enhancer mode: ${topic.enhancerMode}
 Aspect ratio: ${aspectRatio}
 
 Raw prompt:
@@ -877,27 +901,10 @@ ${references.join("\n")}
 Use these files as visual references. The user's prompt controls what to preserve, change, or reinterpret. For edit-style requests, preserve requested identity, pose, composition, or product details from the references unless the prompt says otherwise.`
 }
 
-export function buildPromptEnhancementPrompt({ topic, rawPrompt }) {
-  return `Rewrite the user's image prompt for OpenAI GPT image generation models. Return only the final enhanced prompt, with no markdown, no quotes, no explanation, and no preamble.
+export function buildPromptEnhancementPrompt({ rawPrompt }) {
+  return `${imagePromptOptimizerSystemPrompt}
 
-Use these GPT image prompting rules:
-- Structure the prompt in a maintainable order: scene or background, subject, key details, composition, lighting, materials, style, and constraints.
-- Preserve the user's original intent. Do not invent unrelated subjects.
-- Be concrete about materials, shapes, textures, visual medium, framing, viewpoint, mood, and focal point.
-- Include photorealistic or professional photography language only when it matches the user's intent.
-- If text should appear in the image, put exact visible text in quotes and specify placement, style, contrast, and size. Otherwise explicitly avoid unintended text.
-- Include constraints such as no watermark, no extra text, no logos or trademarks unless requested.
-- For cinematic, low-light, rain, neon, UI mockup, infographic, diagram, product, or multi-panel requests, add the layout details needed for controllable output.
-- Keep it editable and skimmable. Prefer one strong paragraph, not labeled segments or a bloated essay.
-- Output settings are handled later by Generate. Keep this rewrite limited to the visual intent and creative direction.
-
-Topic context:
-Name: ${topic.name}
-Instruction: ${topic.instruction}
-Base details: ${topic.basePromptDetails || "None"}
-Enhancer mode: ${topic.enhancerMode}
-
-User prompt:
+Original user prompt:
 ${rawPrompt}`
 }
 
@@ -928,7 +935,7 @@ Use the image creation skill/tool when Framebook asks for image generation. Fram
 }
 
 function framebookPromptDeveloperInstructions() {
-  return `You are Framebook's prompt enhancement worker. Improve image prompts for GPT image generation models. Return only the final prompt text.`
+  return imagePromptOptimizerSystemPrompt
 }
 
 function framebookTitleDeveloperInstructions() {

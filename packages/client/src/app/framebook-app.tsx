@@ -7,6 +7,7 @@ import {
   draftFromTopic,
   normalizeTopicDraft,
 } from "@app/lib/topic-form"
+import { defaultCreativeModeId } from "@framebook/shared/creative-modes"
 import { framebookApi } from "@shared/api/framebook"
 import { Sidebar } from "./components/app-sidebar"
 import { EmptyPanel } from "./components/empty-panel"
@@ -56,6 +57,12 @@ export interface ReferenceImageAttachment {
   previewUrl: string
 }
 
+interface PendingGenerationRequest {
+  id: string
+  topicId: string
+  versionCount: GenerationVersionCount
+}
+
 export function FramebookApp({
   routeScreen,
   routeTopicId,
@@ -93,6 +100,9 @@ export function FramebookApp({
   const referenceImagesRef = useRef(referenceImages)
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
+  const [selectedCreativeModeId, setSelectedCreativeModeId] = useState(
+    defaultCreativeModeId
+  )
   const [selectedVersionCount, setSelectedVersionCount] =
     useState<GenerationVersionCount>(1)
   const [favoriteOnly, setFavoriteOnly] = useState(false)
@@ -106,7 +116,9 @@ export function FramebookApp({
     () => currentRouteScreen === "image-detail" && Boolean(currentRouteImageId)
   )
   const [isEnhancing, setIsEnhancing] = useState(false)
-  const [isCreatingGeneration, setIsCreatingGeneration] = useState(false)
+  const [pendingGenerationRequests, setPendingGenerationRequests] = useState<
+    Array<PendingGenerationRequest>
+  >([])
   const [jobs, setJobs] = useState<Array<GenerationJob>>([])
   const jobsRef = useRef(jobs)
   const [error, setError] = useState<string | null>(null)
@@ -186,6 +198,24 @@ export function FramebookApp({
   const activeGenerationJobIds = useMemo(
     () => activeGenerationJobs.map((generationJob) => generationJob.id),
     [activeGenerationJobs]
+  )
+  const activeTopicGenerationJobs = useMemo(
+    () =>
+      activeTopic
+        ? jobs.filter(
+            (generationJob) => generationJob.topicId === activeTopic.id
+          )
+        : [],
+    [activeTopic, jobs]
+  )
+  const pendingActiveTopicGeneration = useMemo(
+    () =>
+      activeTopic
+        ? pendingGenerationRequests.find(
+            (request) => request.topicId === activeTopic.id
+          )
+        : undefined,
+    [activeTopic, pendingGenerationRequests]
   )
   const isStarredImagesLoading =
     isLoadingStarredImages ||
@@ -351,13 +381,23 @@ export function FramebookApp({
   }, [currentRouteScreen, currentRouteTopicId, topics])
 
   const activeTopicDefaultAspectRatio = activeTopic?.defaultAspectRatio
+  const activeTopicCreativeModeId = activeTopic?.creativeModeId
   useEffect(() => {
     if (!activeTopicId || !activeTopicDefaultAspectRatio) {
       return
     }
     setSelectedAspectRatio(activeTopicDefaultAspectRatio)
+    setSelectedCreativeModeId(
+      activeTopicCreativeModeId || defaultCreativeModeId
+    )
     void loadImages(activeTopicId, favoriteOnly)
-  }, [activeTopicId, activeTopicDefaultAspectRatio, favoriteOnly, loadImages])
+  }, [
+    activeTopicCreativeModeId,
+    activeTopicDefaultAspectRatio,
+    activeTopicId,
+    favoriteOnly,
+    loadImages,
+  ])
 
   useEffect(() => {
     if (screen === "starred" || screen === "gallery") {
@@ -500,6 +540,7 @@ export function FramebookApp({
         setDetailImage(response.image)
         setActiveTopicId(response.image.topicId)
         setSelectedAspectRatio(response.image.aspectRatio)
+        setSelectedCreativeModeId(response.image.creativeMode.id)
       } catch (requestError) {
         if (!cancelled) {
           setError(errorMessage(requestError))
@@ -548,6 +589,7 @@ export function FramebookApp({
   const openTopic = (topic: TopicSummary, nextScreen: Screen = "topic") => {
     setActiveTopicId(topic.id)
     setSelectedAspectRatio(topic.defaultAspectRatio)
+    setSelectedCreativeModeId(topic.creativeModeId || defaultCreativeModeId)
     setError(null)
     navigateTo(nextScreen, topic.id)
   }
@@ -651,9 +693,7 @@ export function FramebookApp({
       setStarredImages((current) =>
         current.filter((candidate) => candidate.id !== image.id)
       )
-      setDetailImage((current) =>
-        current?.id === image.id ? null : current
-      )
+      setDetailImage((current) => (current?.id === image.id ? null : current))
       setPreviewImageId((current) => (current === image.id ? null : current))
       await loadTopics()
       toast.success("Image deleted", { description: image.title })
@@ -782,8 +822,28 @@ export function FramebookApp({
       return
     }
 
+    const topicId = activeTopic.id
+    const requestId = createClientId()
+    const submittedUserPrompt = userPrompt.trim() || submittedPromptValue.trim()
+    const submittedGenerationPrompt =
+      promptMode === "generation" ? generationPrompt.trim() : ""
+    const submittedReferenceFiles = referenceImages.map(
+      (referenceImage) => referenceImage.file
+    )
+
     setError(null)
-    setIsCreatingGeneration(true)
+    setPendingGenerationRequests((current) => [
+      ...current,
+      {
+        id: requestId,
+        topicId,
+        versionCount: selectedVersionCount,
+      },
+    ])
+    setUserPrompt("")
+    setGenerationPrompt("")
+    setPromptMode("user")
+    clearReferenceImages()
     toast(
       selectedVersionCount > 1
         ? `${selectedVersionCount} images are being generated`
@@ -793,35 +853,42 @@ export function FramebookApp({
       }
     )
     try {
-      const submittedUserPrompt =
-        userPrompt.trim() || submittedPromptValue.trim()
-      const submittedGenerationPrompt =
-        promptMode === "generation" ? generationPrompt.trim() : ""
       const response = await framebookApi.createGeneration(
-        activeTopic.id,
+        topicId,
         {
           rawPrompt: submittedUserPrompt,
           enhancedPrompt: submittedGenerationPrompt,
           aspectRatio: selectedAspectRatio,
           versionCount: selectedVersionCount,
+          creativeModeId: selectedCreativeModeId,
         },
-        referenceImages.map((referenceImage) => referenceImage.file)
+        submittedReferenceFiles
       )
       const responseJobs = (
         response as { job: GenerationJob; jobs?: Array<GenerationJob> }
       ).jobs
-      jobsRef.current = responseJobs ?? [response.job]
-      setJobs(responseJobs ?? [response.job])
-      setUserPrompt("")
-      setGenerationPrompt("")
-      setPromptMode("user")
-      clearReferenceImages()
+      const createdJobs = responseJobs ?? [response.job]
+      setJobs((currentJobs) => {
+        const createdJobIds = new Set(
+          createdJobs.map((generationJob) => generationJob.id)
+        )
+        const nextJobs = [
+          ...currentJobs.filter(
+            (generationJob) => !createdJobIds.has(generationJob.id)
+          ),
+          ...createdJobs,
+        ]
+        jobsRef.current = nextJobs
+        return nextJobs
+      })
     } catch (requestError) {
       toast.dismiss(generationToastId)
       toast.error("Image generation failed")
       setError(errorMessage(requestError))
     } finally {
-      setIsCreatingGeneration(false)
+      setPendingGenerationRequests((current) =>
+        current.filter((request) => request.id !== requestId)
+      )
     }
   }
 
@@ -990,13 +1057,19 @@ export function FramebookApp({
                 topic={activeTopic}
                 images={images}
                 promptValue={promptValue}
+                originalPromptValue={userPrompt}
+                isOptimizedPrompt={promptMode === "generation"}
                 referenceImages={referenceImages}
                 selectedAspectRatio={selectedAspectRatio}
+                selectedCreativeModeId={selectedCreativeModeId}
                 selectedVersionCount={selectedVersionCount}
+                creatingGenerationVersionCount={
+                  pendingActiveTopicGeneration?.versionCount
+                }
                 favoriteOnly={favoriteOnly}
-                jobs={jobs}
+                jobs={activeTopicGenerationJobs}
                 isEnhancing={isEnhancing}
-                isCreatingGeneration={isCreatingGeneration}
+                isCreatingGeneration={Boolean(pendingActiveTopicGeneration)}
                 isLoadingImages={isLoadingImages}
                 onBack={() => navigateTo("topics")}
                 onEditTopic={() => startEditTopic(activeTopic)}
@@ -1006,6 +1079,7 @@ export function FramebookApp({
                 onRemoveReferenceImage={removeReferenceImage}
                 onReferenceImageError={showReferenceImageError}
                 onAspectRatioChange={setSelectedAspectRatio}
+                onCreativeModeChange={setSelectedCreativeModeId}
                 onVersionCountChange={setSelectedVersionCount}
                 onArchiveImage={archiveImage}
                 onEnhancePrompt={enhanceCurrentPrompt}

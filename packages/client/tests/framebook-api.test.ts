@@ -21,7 +21,7 @@ describe("framebook api client", () => {
       instruction: "Make vintage travel posters.",
       defaultAspectRatio: "16:9",
       basePromptDetails: "",
-      enhancerMode: "balanced",
+      creativeModeId: "blue-pin-poster",
     })
 
     expect(fetcher).toHaveBeenCalledWith(
@@ -209,6 +209,29 @@ describe("framebook api client", () => {
     )
   })
 
+  it("can send the selected creative mode when creating a generation", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" }, jobs: [] }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.createGeneration("topic-1", {
+      rawPrompt: "A rainy hill station market at dusk",
+      creativeModeId: "nighttime",
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1/generations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          rawPrompt: "A rainy hill station market at dusk",
+          creativeModeId: "nighttime",
+        }),
+      })
+    )
+  })
+
   it("sends multipart form data when creating a generation with reference images", async () => {
     const fetcher = vi.fn<typeof fetch>(() =>
       Promise.resolve(Response.json({ job: { id: "job-1" } }))
@@ -224,6 +247,7 @@ describe("framebook api client", () => {
         rawPrompt: "Change the t-shirt color",
         enhancedPrompt: "Change only the t-shirt color.",
         aspectRatio: "4:3",
+        creativeModeId: "headshot",
       },
       [referenceImage]
     )
@@ -241,6 +265,7 @@ describe("framebook api client", () => {
     expect((init.body as FormData).get("rawPrompt")).toBe(
       "Change the t-shirt color"
     )
+    expect((init.body as FormData).get("creativeModeId")).toBe("headshot")
     const uploadedReference = (init.body as FormData).get(
       "referenceImages"
     ) as File

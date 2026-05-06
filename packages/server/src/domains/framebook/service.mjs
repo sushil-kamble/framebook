@@ -3,11 +3,12 @@ import { access, mkdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import sharp from "sharp"
 import { enhancePrompt } from "./enhancer.mjs"
+import { isAspectRatio, isGenerationVersionCount } from "./constants.mjs"
 import {
-  isAspectRatio,
-  isEnhancerMode,
-  isGenerationVersionCount,
-} from "./constants.mjs"
+  defaultCreativeModeId,
+  isCreativeModeId,
+  resolveCreativeMode,
+} from "@framebook/shared/creative-modes"
 import {
   createImageOptimizer,
   imageVariantMimeType,
@@ -73,13 +74,12 @@ export function createFramebookService({
       id: store.createId(),
       name: requireText(input.name, "Topic name is required"),
       description: optionalText(input.description),
-      instruction: requireText(
-        input.instruction,
-        "Topic instruction is required"
-      ),
-      defaultAspectRatio: requireAspectRatio(input.defaultAspectRatio),
+      instruction: optionalText(input.instruction),
+      defaultAspectRatio: input.defaultAspectRatio
+        ? requireAspectRatio(input.defaultAspectRatio)
+        : "16:9",
       basePromptDetails: optionalText(input.basePromptDetails),
-      enhancerMode: requireEnhancerMode(input.enhancerMode),
+      creativeModeId: optionalCreativeModeId(input.creativeModeId),
       archivedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -112,7 +112,7 @@ export function createFramebookService({
       instruction:
         input.instruction === undefined
           ? current.instruction
-          : requireText(input.instruction, "Topic instruction is required"),
+          : optionalText(input.instruction),
       defaultAspectRatio:
         input.defaultAspectRatio === undefined
           ? current.defaultAspectRatio
@@ -121,10 +121,10 @@ export function createFramebookService({
         input.basePromptDetails === undefined
           ? current.basePromptDetails
           : optionalText(input.basePromptDetails),
-      enhancerMode:
-        input.enhancerMode === undefined
-          ? current.enhancerMode
-          : requireEnhancerMode(input.enhancerMode),
+      creativeModeId:
+        input.creativeModeId === undefined
+          ? normalizeOptionalCreativeModeId(current.creativeModeId)
+          : optionalCreativeModeId(input.creativeModeId),
       updatedAt: new Date().toISOString(),
     }
 
@@ -219,6 +219,9 @@ export function createFramebookService({
   async function addImageRecord(input) {
     const topic = await ensureTopic(input.topicId)
     const now = new Date().toISOString()
+    const creativeModeId = normalizeCreativeModeId(
+      input.creativeModeId || topic.creativeModeId
+    )
     const record = {
       id: input.id || store.createId(),
       topicId: topic.id,
@@ -232,10 +235,8 @@ export function createFramebookService({
       ),
       finalPrompt: requireText(input.finalPrompt, "Final prompt is required"),
       aspectRatio: requireAspectRatio(input.aspectRatio),
-      enhancerMode: requireEnhancerMode(
-        input.enhancerMode || topic.enhancerMode
-      ),
       topicSnapshot: snapshotTopic(topic),
+      creativeMode: snapshotCreativeMode(creativeModeId),
       favorite: Boolean(input.favorite),
       archivedAt: input.archivedAt ?? null,
       fileName: requireText(input.fileName, "Image file name is required"),
@@ -396,7 +397,7 @@ export function createFramebookService({
   async function enhanceTopicPrompt(topicId, input) {
     const topic = await ensureTopic(topicId)
     const rawPrompt = requireText(input.rawPrompt, "Raw prompt is required")
-    const enhancedPrompt = await resolveEnhancedPrompt({ topic, rawPrompt })
+    const enhancedPrompt = await resolveEnhancedPrompt({ rawPrompt })
 
     return {
       rawPrompt,
@@ -413,6 +414,11 @@ export function createFramebookService({
       : topic.defaultAspectRatio
     const versionCount = requireGenerationVersionCount(input.versionCount)
     const enhancedPrompt = optionalText(input.enhancedPrompt) || rawPrompt
+    const inputCreativeModeId = optionalText(input.creativeModeId)
+    const creativeModeId =
+      inputCreativeModeId === ""
+        ? normalizeCreativeModeId(topic.creativeModeId)
+        : requireCreativeModeId(inputCreativeModeId)
     const title =
       versionCount > 1
         ? await resolveImageTitle({
@@ -430,6 +436,7 @@ export function createFramebookService({
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
       aspectRatio,
+      creativeMode: resolveCreativeMode(creativeModeId),
     })
     const createdJobs = []
 
@@ -451,6 +458,7 @@ export function createFramebookService({
         enhancedPrompt,
         finalPrompt,
         aspectRatio,
+        creativeModeId,
         referenceImages,
         imageId: null,
         error: null,
@@ -553,11 +561,13 @@ export function createFramebookService({
 
       const outputDir = store.getTopicAssetDir(topic.id)
       const fileName = `${job.id}.png`
+      const creativeMode = resolveCreativeMode(job.creativeModeId)
       const generated = await codexClient.generateImage({
         prompt: job.finalPrompt,
         rawPrompt: job.rawPrompt,
         aspectRatio: job.aspectRatio,
         topic,
+        creativeMode,
         referenceImages: referenceImagesWithPaths(
           topic.id,
           job.referenceImages
@@ -573,7 +583,7 @@ export function createFramebookService({
         enhancedPrompt: job.enhancedPrompt,
         finalPrompt: job.finalPrompt,
         aspectRatio: job.aspectRatio,
-        enhancerMode: topic.enhancerMode,
+        creativeModeId: creativeMode.id,
         referenceImages: job.referenceImages,
         fileName: generated.fileName,
         mimeType: generated.mimeType,
@@ -708,7 +718,7 @@ export function createFramebookService({
       throw notFound("Topic not found")
     }
 
-    return topic
+    return normalizeTopic(topic)
   }
 
   async function updateJob(jobId, patch) {
@@ -809,10 +819,10 @@ export function createFramebookService({
     }))
   }
 
-  async function resolveEnhancedPrompt({ topic, rawPrompt }) {
+  async function resolveEnhancedPrompt({ rawPrompt }) {
     return typeof codexClient.enhancePrompt === "function"
-      ? await codexClient.enhancePrompt({ topic, rawPrompt })
-      : enhancePrompt({ topic, rawPrompt })
+      ? await codexClient.enhancePrompt({ rawPrompt })
+      : enhancePrompt({ rawPrompt })
   }
 
   function resolveInitialImageTitle({ rawPrompt, inputTitle }) {
@@ -955,8 +965,25 @@ function errorMessage(error) {
 }
 
 function normalizeImageRecord(image) {
+  const topicSnapshot = image.topicSnapshot
+    ? {
+        ...image.topicSnapshot,
+        creativeModeId: normalizeCreativeModeId(
+          image.topicSnapshot.creativeModeId
+        ),
+      }
+    : image.topicSnapshot
+  const creativeMode = image.creativeMode
+    ? {
+        ...image.creativeMode,
+        id: normalizeCreativeModeId(image.creativeMode.id),
+      }
+    : snapshotCreativeMode(topicSnapshot?.creativeModeId)
+
   return {
     ...image,
+    topicSnapshot,
+    creativeMode,
     referenceImages: normalizeReferenceImages(image.referenceImages),
   }
 }
@@ -1146,22 +1173,31 @@ function normalizeGenerationJob(job) {
   return {
     ...job,
     title: normalizeImageTitle(job.title) || titleFromPrompt(job.rawPrompt),
+    creativeModeId: normalizeCreativeModeId(job.creativeModeId),
     referenceImages: normalizeReferenceImages(job.referenceImages),
   }
 }
 
 function summarizeTopic(topic, images) {
+  const normalized = normalizeTopic(topic)
   const topicImages = images
-    .filter((image) => image.topicId === topic.id && !image.archivedAt)
+    .filter((image) => image.topicId === normalized.id && !image.archivedAt)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   const latestImage = topicImages[0] ?? null
 
   return {
-    ...topic,
+    ...normalized,
     imageCount: topicImages.length,
     favoriteCount: topicImages.filter((image) => image.favorite).length,
     latestImageId: latestImage?.id ?? null,
     latestImageCreatedAt: latestImage?.createdAt ?? null,
+  }
+}
+
+function normalizeTopic(topic) {
+  return {
+    ...topic,
+    creativeModeId: normalizeOptionalCreativeModeId(topic.creativeModeId),
   }
 }
 
@@ -1172,8 +1208,44 @@ function snapshotTopic(topic) {
     instruction: topic.instruction,
     defaultAspectRatio: topic.defaultAspectRatio,
     basePromptDetails: topic.basePromptDetails,
-    enhancerMode: topic.enhancerMode,
+    creativeModeId: normalizeOptionalCreativeModeId(topic.creativeModeId),
   }
+}
+
+function snapshotCreativeMode(creativeModeId) {
+  const mode = resolveCreativeMode(creativeModeId)
+  return {
+    id: mode.id,
+    name: mode.name,
+    basePromptDetails: mode.basePromptDetails,
+    creativeDirection: mode.creativeDirection,
+  }
+}
+
+function normalizeCreativeModeId(value) {
+  return isCreativeModeId(value) ? value : defaultCreativeModeId
+}
+
+function normalizeOptionalCreativeModeId(value) {
+  return isCreativeModeId(value) ? value : ""
+}
+
+function optionalCreativeModeId(value) {
+  const id = optionalText(value)
+
+  if (!id) {
+    return ""
+  }
+
+  return requireCreativeModeId(id)
+}
+
+function requireCreativeModeId(value) {
+  if (!isCreativeModeId(value)) {
+    throw badRequest("Invalid creative mode")
+  }
+
+  return value
 }
 
 function requireText(value, message) {
@@ -1198,14 +1270,6 @@ function requireAspectRatio(value) {
   return value
 }
 
-function requireEnhancerMode(value) {
-  if (!isEnhancerMode(value)) {
-    throw badRequest("Invalid enhancer mode")
-  }
-
-  return value
-}
-
 function requireGenerationVersionCount(value) {
   const count = value === undefined ? 1 : Number(value)
 
@@ -1216,13 +1280,20 @@ function requireGenerationVersionCount(value) {
   return count
 }
 
-function buildFinalPrompt({ enhancedPrompt, aspectRatio }) {
-  return [
-    enhancedPrompt,
-    "",
-    "Generation requirements:",
-    `- Aspect ratio: ${aspectRatio}`,
-  ].join("\n")
+function buildFinalPrompt({ enhancedPrompt, aspectRatio, creativeMode }) {
+  const lines = [enhancedPrompt, ""]
+
+  if (creativeMode?.basePromptDetails) {
+    lines.push(`Creative mode (${creativeMode.name}):`)
+    lines.push(creativeMode.basePromptDetails)
+    if (creativeMode.creativeDirection) {
+      lines.push(creativeMode.creativeDirection)
+    }
+    lines.push("")
+  }
+
+  lines.push("Generation requirements:", `- Aspect ratio: ${aspectRatio}`)
+  return lines.join("\n")
 }
 
 function extractExplicitTitleFromPrompt(prompt) {
