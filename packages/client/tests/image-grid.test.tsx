@@ -279,6 +279,7 @@ describe("optimized image grids", () => {
         onRevealImage={vi.fn()}
         onShareImage={vi.fn()}
         onArchiveImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
       />
     )
 
@@ -306,6 +307,7 @@ describe("optimized image grids", () => {
         onRevealImage={vi.fn()}
         onShareImage={vi.fn()}
         onArchiveImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
         onPreviousImage={onPreviousImage}
         onNextImage={onNextImage}
       />
@@ -322,6 +324,53 @@ describe("optimized image grids", () => {
 
     expect(onNextImage).toHaveBeenCalledTimes(2)
     expect(onPreviousImage).toHaveBeenCalledTimes(2)
+  })
+
+  it("confirms before archiving an image from the preview dialog", async () => {
+    const onArchiveImage = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <ImagePreviewDialog
+        image={imageRecord}
+        onClose={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onRevealImage={vi.fn()}
+        onShareImage={vi.fn()}
+        onArchiveImage={onArchiveImage}
+        onViewImageDetails={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive image" }))
+
+    expect(screen.getByText("Archive image?")).toBeTruthy()
+    expect(onArchiveImage).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }))
+
+    await waitFor(() =>
+      expect(onArchiveImage).toHaveBeenCalledWith(imageRecord)
+    )
+  })
+
+  it("opens image details from the preview dialog", () => {
+    const onViewImageDetails = vi.fn()
+
+    render(
+      <ImagePreviewDialog
+        image={imageRecord}
+        onClose={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onRevealImage={vi.fn()}
+        onShareImage={vi.fn()}
+        onArchiveImage={vi.fn()}
+        onViewImageDetails={onViewImageDetails}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "View image details" }))
+
+    expect(onViewImageDetails).toHaveBeenCalledWith(imageRecord)
   })
 
   it("renders reference images on image detail", () => {
@@ -402,6 +451,7 @@ function PreviewToggleHarness() {
         onRevealImage={vi.fn()}
         onShareImage={vi.fn()}
         onArchiveImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
       />
     </>
   )

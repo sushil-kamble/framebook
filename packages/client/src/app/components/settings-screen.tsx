@@ -125,7 +125,7 @@ export function SettingsScreen({
       </header>
 
       <div className="relative z-10 flex w-full justify-center px-4 pt-4 pb-6 md:px-6">
-        <div className="settings-panel w-full max-w-5xl overflow-hidden rounded-3xl p-5 sm:p-6 lg:p-8">
+        <div className="settings-panel max-h-[calc(100svh-7rem)] w-full max-w-5xl overflow-y-auto rounded-3xl p-5 sm:p-6 lg:p-8">
           <div>
             <div className="mb-4 flex items-center gap-3 border-b border-border/40 pb-4">
               <div className="grid size-8 place-items-center rounded-xl framer-spotlight-orange text-white shadow-sm shadow-black/25">

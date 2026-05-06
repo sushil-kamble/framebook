@@ -540,6 +540,11 @@ export function FramebookApp({
     } as Parameters<typeof navigate>[0])
   }
 
+  const openPreviewImageDetail = (image: ImageRecord) => {
+    setPreviewImageId(null)
+    openImageDetail(image)
+  }
+
   const openTopic = (topic: TopicSummary, nextScreen: Screen = "topic") => {
     setActiveTopicId(topic.id)
     setSelectedAspectRatio(topic.defaultAspectRatio)
@@ -1066,6 +1071,7 @@ export function FramebookApp({
         onRevealImage={(image) => framebookApi.revealImage(image.id)}
         onShareImage={shareImage}
         onArchiveImage={archiveImage}
+        onViewImageDetails={openPreviewImageDetail}
         onPreviousImage={
           previewImages.length > 1 ? () => cyclePreviewImage(-1) : undefined
         }

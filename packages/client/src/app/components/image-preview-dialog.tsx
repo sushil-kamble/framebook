@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Download,
   FolderOpen,
+  Info,
   Share2,
   X,
 } from "lucide-react"
@@ -15,6 +16,7 @@ import {
   imageFileUrl,
   imageResolutionLabel,
 } from "../lib/utils"
+import { ConfirmationDialog } from "./confirmation-dialog"
 import type { ReactNode } from "react"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
 import { Button } from "@/shared/ui/button"
@@ -32,6 +34,7 @@ export function ImagePreviewDialog(props: {
   onRevealImage: (image: ImageRecord) => Promise<unknown>
   onShareImage: (image: ImageRecord) => Promise<void>
   onArchiveImage: (image: ImageRecord) => Promise<void>
+  onViewImageDetails: (image: ImageRecord) => void
   onPreviousImage?: () => void
   onNextImage?: () => void
 }) {
@@ -150,6 +153,12 @@ export function ImagePreviewDialog(props: {
                 <Download />
               </ViewerActionButton>
               <ViewerActionButton
+                label="View image details"
+                onClick={() => props.onViewImageDetails(image)}
+              >
+                <Info />
+              </ViewerActionButton>
+              <ViewerActionButton
                 label="Reveal in Finder"
                 onClick={() => void props.onRevealImage(image)}
               >
@@ -161,12 +170,17 @@ export function ImagePreviewDialog(props: {
               >
                 <Share2 />
               </ViewerActionButton>
-              <ViewerActionButton
-                label="Archive image"
-                onClick={() => void props.onArchiveImage(image)}
-              >
-                <Archive />
-              </ViewerActionButton>
+              <ConfirmationDialog
+                title="Archive image?"
+                description={`Archive “${image.title}”? You can restore it later from Settings.`}
+                confirmLabel="Archive"
+                onConfirm={() => props.onArchiveImage(image)}
+                trigger={
+                  <ViewerActionButton label="Archive image">
+                    <Archive />
+                  </ViewerActionButton>
+                }
+              />
               <ViewerActionButton label="Close viewer" onClick={props.onClose}>
                 <X />
               </ViewerActionButton>
@@ -213,7 +227,7 @@ function ViewerActionButton({
 }: {
   label: string
   children: ReactNode
-  onClick: () => void
+  onClick?: () => void
 }) {
   return (
     <Button

@@ -48,11 +48,6 @@ export function Sidebar({
           </div>
         </div>
 
-        <div className="mb-1.5 px-3">
-          <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase">
-            Workspace
-          </span>
-        </div>
 
         <nav className="flex flex-col gap-0.5">
           <NavButton
