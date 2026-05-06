@@ -323,6 +323,32 @@ describe("framebook service", () => {
     })
   })
 
+  it("uses the raw prompt for generation unless an enhanced prompt is submitted", async () => {
+    const fakeCodexClient = createFakeCodexClient()
+    let enhancePromptCalled = false
+    const exactPromptService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...fakeCodexClient,
+        async enhancePrompt() {
+          enhancePromptCalled = true
+          return "This should not be used."
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(exactPromptService)
+    const job = await exactPromptService.createGeneration(topic.id, {
+      rawPrompt: "Use exactly this prompt.",
+      aspectRatio: "4:3",
+    })
+
+    expect(enhancePromptCalled).toBe(false)
+    expect(job.enhancedPrompt).toBe("Use exactly this prompt.")
+    expect(job.finalPrompt).toContain("Use exactly this prompt.")
+    expect(job.finalPrompt).not.toContain("This should not be used.")
+  })
+
   it("runs a generation job and saves the generated file and image metadata", async () => {
     const topic = await createTopic(service)
     const job = await service.createGeneration(topic.id, {

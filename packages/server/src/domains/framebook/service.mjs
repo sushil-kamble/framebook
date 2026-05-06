@@ -412,9 +412,7 @@ export function createFramebookService({
       ? requireAspectRatio(input.aspectRatio)
       : topic.defaultAspectRatio
     const versionCount = requireGenerationVersionCount(input.versionCount)
-    const enhancedPrompt =
-      optionalText(input.enhancedPrompt) ||
-      (await resolveEnhancedPrompt({ topic, rawPrompt }))
+    const enhancedPrompt = optionalText(input.enhancedPrompt) || rawPrompt
     const title =
       versionCount > 1
         ? await resolveImageTitle({
@@ -448,8 +446,7 @@ export function createFramebookService({
         id: jobId,
         topicId: topic.id,
         status: "queued",
-        title:
-          versionCount > 1 ? versionedImageTitle(title, index + 1) : title,
+        title: versionCount > 1 ? versionedImageTitle(title, index + 1) : title,
         rawPrompt,
         enhancedPrompt,
         finalPrompt,
@@ -1281,9 +1278,7 @@ function versionedImageTitle(title, versionIndex) {
   }
 
   const maxBaseLength = imageTitleMaxLength - suffix.length
-  const wordBoundary = baseTitle
-    .slice(0, maxBaseLength)
-    .replace(/\s+\S*$/u, "")
+  const wordBoundary = baseTitle.slice(0, maxBaseLength).replace(/\s+\S*$/u, "")
   const truncatedBase = (wordBoundary || baseTitle.slice(0, maxBaseLength))
     .replace(/[|,;:./\-\s]+$/gu, "")
     .trim()

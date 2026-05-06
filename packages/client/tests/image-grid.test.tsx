@@ -256,6 +256,7 @@ describe("optimized image grids", () => {
       false
     )
     expect(screen.getByText("Image generation prompt")).toBeTruthy()
+    expect(screen.getByText("Enhanced prompt")).toBeTruthy()
     expect(screen.queryByText("User prompt")).toBeNull()
     expect(screen.queryByText(imageRecord.rawPrompt)).toBeNull()
 
@@ -268,6 +269,25 @@ describe("optimized image grids", () => {
       expect(onPreviewImage).toHaveBeenCalledWith(imageRecord)
     )
     unmount()
+
+    const { unmount: unmountExactPromptDetail } = render(
+      <ImageDetailPage
+        image={{
+          ...imageRecord,
+          enhancedPrompt: imageRecord.rawPrompt,
+          finalPrompt: imageRecord.rawPrompt,
+        }}
+        onBack={vi.fn()}
+        onTopicsClick={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onShareImage={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText("Exact prompt")).toBeTruthy()
+    unmountExactPromptDetail()
 
     const onClosePreview = vi.fn()
 

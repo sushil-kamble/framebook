@@ -929,7 +929,10 @@ export function FramebookApp({
         <Sidebar
           screen={screen}
           themeMode={themeMode}
+          topics={topics}
+          activeTopicId={activeTopicId}
           onNavigate={navigateTo}
+          onSelectTopic={(topic) => openTopic(topic)}
           onCreateTopic={startCreateTopic}
           onThemeModeChange={setThemeMode}
         />

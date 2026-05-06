@@ -38,6 +38,10 @@ export function ImageDetailPage(props: {
     referenceImages?: ImageRecord["referenceImages"]
   }
   const referenceImages = imageWithReferences.referenceImages ?? []
+  const promptSource =
+    image.enhancedPrompt.trim() === image.rawPrompt.trim()
+      ? "Exact prompt"
+      : "Enhanced prompt"
 
   return (
     <div className="mx-auto flex flex-col gap-5">
@@ -116,6 +120,7 @@ export function ImageDetailPage(props: {
           />
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <MetaItem label="Topic" value={image.topicSnapshot.name} />
+            <MetaItem label="Prompt source" value={promptSource} />
             <MetaItem label="Aspect ratio" value={image.aspectRatio} />
             <MetaItem label="Created" value={formatDate(image.createdAt)} />
             <MetaItem label="Mode" value={modeLabel(image.enhancerMode)} />
