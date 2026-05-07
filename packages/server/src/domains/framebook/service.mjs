@@ -3,7 +3,19 @@ import { access, mkdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import sharp from "sharp"
 import { enhancePrompt } from "./enhancer.mjs"
-import { isAspectRatio, isGenerationVersionCount } from "./constants.mjs"
+import {
+  defaultGeneratedImageMimeType,
+  generatedImageExtension,
+  imageTitleMaxLength,
+  isAspectRatio,
+  isGenerationVersionCount,
+  maxReferenceImageBytes,
+  maxReferenceImages,
+  referenceDirName,
+  referenceImageExtensions,
+  referenceImageMaxSizeLabel,
+  referenceImageMimeTypes,
+} from "./constants.mjs"
 import {
   defaultCreativeModeId,
   isCreativeModeId,
@@ -18,21 +30,6 @@ import {
 } from "./image-optimizer.mjs"
 import { createFramebookStore } from "./storage.mjs"
 import { createCodexClient } from "#infra/agent-clients/codex.mjs"
-
-const imageTitleMaxLength = 60
-const referenceDirName = "references"
-const maxReferenceImages = 5
-const maxReferenceImageBytes = 10 * 1024 * 1024
-const referenceImageMimeTypes = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-])
-const referenceImageExtensions = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/webp": ".webp",
-}
 
 export function createFramebookService({
   store = createFramebookStore(),
@@ -240,7 +237,7 @@ export function createFramebookService({
       favorite: Boolean(input.favorite),
       archivedAt: input.archivedAt ?? null,
       fileName: requireText(input.fileName, "Image file name is required"),
-      mimeType: input.mimeType || "image/png",
+      mimeType: input.mimeType || defaultGeneratedImageMimeType,
       referenceImages: normalizeReferenceImages(input.referenceImages),
       createdAt: input.createdAt || now,
     }
@@ -560,7 +557,7 @@ export function createFramebookService({
       }
 
       const outputDir = store.getTopicAssetDir(topic.id)
-      const fileName = `${job.id}.png`
+      const fileName = `${job.id}${generatedImageExtension}`
       const creativeMode = resolveCreativeMode(job.creativeModeId)
       const generated = await codexClient.generateImage({
         prompt: job.finalPrompt,
@@ -780,7 +777,9 @@ export function createFramebookService({
         : buffer.byteLength
 
       if (sizeBytes > maxReferenceImageBytes) {
-        throw badRequest("Reference image must be 10 MB or smaller")
+        throw badRequest(
+          `Reference image must be ${referenceImageMaxSizeLabel} or smaller`
+        )
       }
 
       const id = store.createId()

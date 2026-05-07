@@ -1093,22 +1093,22 @@ describe("framebook service", () => {
         )
       ).toEqual([
         {
-          model: "gpt-5.4-mini",
-          effort: "low",
+          model: "gpt-5.5",
+          effort: "none",
           serviceTier: "fast",
           appServerArgs: ["--disable", "plugins", "--disable", "apps"],
           logStderr: false,
         },
         {
-          model: "gpt-5.4-mini",
-          effort: "medium",
+          model: "gpt-5.5",
+          effort: "none",
           serviceTier: undefined,
           appServerArgs: ["--disable", "plugins", "--disable", "apps"],
           logStderr: false,
         },
         {
           model: "gpt-5.5",
-          effort: "medium",
+          effort: "none",
           serviceTier: "fast",
           appServerArgs: ["--disable", "plugins", "--disable", "apps"],
           logStderr: false,

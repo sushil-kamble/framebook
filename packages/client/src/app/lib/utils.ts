@@ -141,6 +141,24 @@ export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong"
 }
 
+export function createClientId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+export function createObjectUrl(file: File) {
+  return typeof window.URL.createObjectURL === "function"
+    ? window.URL.createObjectURL(file)
+    : ""
+}
+
+export function revokeObjectUrl(value: string) {
+  if (value && typeof window.URL.revokeObjectURL === "function") {
+    window.URL.revokeObjectURL(value)
+  }
+}
+
 export function routeForScreen(screen: Screen, topicId?: string | null) {
   if (screen === "settings") {
     return "/settings"

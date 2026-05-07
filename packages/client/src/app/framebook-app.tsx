@@ -23,9 +23,29 @@ import {
 import { TopicsScreen } from "./components/topics-screen"
 import { generationPollIntervalMs } from "./lib/constants"
 import {
+  generationStartedToastMessage,
+  generationSucceededToastMessage,
+  generationToastId,
+  isActiveGenerationJob,
+  promptEnhancementToastId,
+} from "./lib/generation"
+import {
+  isStarredImagesScreen,
+  updateStarredImages,
+} from "./lib/image-collections"
+import {
+  isReferenceImageFile,
+  isReferenceImageTooLarge,
+  referenceImageConfig,
+  referenceImageMessages,
+} from "./lib/reference-images"
+import {
+  createClientId,
+  createObjectUrl,
   errorMessage,
   imageDownloadName,
   imageFileUrl,
+  revokeObjectUrl,
   routeForScreen,
   routeStateFromPathname,
 } from "./lib/utils"
@@ -40,16 +60,6 @@ import type {
   ImageRecord,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
-
-const generationToastId = "generation"
-const promptEnhancementToastId = "prompt-enhancement"
-const maxReferenceImages = 5
-const maxReferenceImageBytes = 10 * 1024 * 1024
-const referenceImageMimeTypes = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-])
 
 export interface ReferenceImageAttachment {
   id: string
@@ -313,11 +323,7 @@ export function FramebookApp({
       toast.dismiss(generationToastId)
 
       if (failedJobs.length === 0) {
-        toast.success(
-          succeededJobs.length > 1
-            ? `${succeededJobs.length} images generated`
-            : "Image generated"
-        )
+        toast.success(generationSucceededToastMessage(succeededJobs.length))
         return
       }
 
@@ -743,13 +749,13 @@ export function FramebookApp({
     const validFiles: Array<File> = []
 
     for (const file of files) {
-      if (!referenceImageMimeTypes.has(file.type)) {
-        toast.error("Reference image must be a PNG, JPEG, or WebP file")
+      if (!isReferenceImageFile(file)) {
+        toast.error(referenceImageMessages.invalidType)
         continue
       }
 
-      if (file.size > maxReferenceImageBytes) {
-        toast.error("Reference image must be 10 MB or smaller")
+      if (isReferenceImageTooLarge(file)) {
+        toast.error(referenceImageMessages.tooLarge)
         continue
       }
 
@@ -761,15 +767,15 @@ export function FramebookApp({
     }
 
     setReferenceImages((current) => {
-      const availableSlots = maxReferenceImages - current.length
+      const availableSlots = referenceImageConfig.maxFiles - current.length
 
       if (availableSlots <= 0) {
-        toast.error(`You can attach up to ${maxReferenceImages} images`)
+        toast.error(referenceImageMessages.tooMany)
         return current
       }
 
       if (validFiles.length > availableSlots) {
-        toast.error(`You can attach up to ${maxReferenceImages} images`)
+        toast.error(referenceImageMessages.tooMany)
       }
 
       const nextAttachments = validFiles
@@ -844,14 +850,9 @@ export function FramebookApp({
     setGenerationPrompt("")
     setPromptMode("user")
     clearReferenceImages()
-    toast(
-      selectedVersionCount > 1
-        ? `${selectedVersionCount} images are being generated`
-        : "Your image is being generated",
-      {
-        id: generationToastId,
-      }
-    )
+    toast(generationStartedToastMessage(selectedVersionCount), {
+      id: generationToastId,
+    })
     try {
       const response = await framebookApi.createGeneration(
         topicId,
@@ -1158,46 +1159,4 @@ export function FramebookApp({
       />
     </main>
   )
-}
-
-function isActiveGenerationJob(job: GenerationJob) {
-  return job.status === "queued" || job.status === "running"
-}
-
-function isStarredImagesScreen(screen: Screen) {
-  return screen === "starred" || screen === "gallery"
-}
-
-function updateStarredImages(current: Array<ImageRecord>, image: ImageRecord) {
-  if (!image.favorite || image.archivedAt) {
-    return current.filter((candidate) => candidate.id !== image.id)
-  }
-
-  const next = current.some((candidate) => candidate.id === image.id)
-    ? current.map((candidate) =>
-        candidate.id === image.id ? image : candidate
-      )
-    : [image, ...current]
-
-  return next.sort((left, right) =>
-    right.createdAt.localeCompare(left.createdAt)
-  )
-}
-
-function createClientId() {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function createObjectUrl(file: File) {
-  return typeof window.URL.createObjectURL === "function"
-    ? window.URL.createObjectURL(file)
-    : ""
-}
-
-function revokeObjectUrl(value: string) {
-  if (value && typeof window.URL.revokeObjectURL === "function") {
-    window.URL.revokeObjectURL(value)
-  }
 }

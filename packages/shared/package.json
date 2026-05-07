@@ -4,6 +4,10 @@
   "type": "module",
   "exports": {
     "./config/app": "./src/config/app.ts",
+    "./config/framebook": {
+      "types": "./src/config/framebook.ts",
+      "import": "./src/config/framebook.mjs"
+    },
     "./contracts/framebook": "./src/contracts/framebook.ts",
     "./creative-modes": {
       "types": "./src/creative-modes/index.ts",

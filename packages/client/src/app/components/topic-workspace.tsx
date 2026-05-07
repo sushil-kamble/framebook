@@ -18,6 +18,13 @@ import {
   creativeModeOptions,
   generationVersionOptions,
 } from "../lib/constants"
+import { activeGenerationJobCount } from "../lib/generation"
+import {
+  referenceImageConfig,
+  referenceImageDropErrorMessage,
+  referenceImageDropzoneAccept,
+  referenceImageMessages,
+} from "../lib/reference-images"
 import {
   formatDate,
   imageFileUrl,
@@ -28,7 +35,7 @@ import {
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import { ConfirmationDialog } from "./confirmation-dialog"
-import type { DropzoneState, FileRejection } from "react-dropzone"
+import type { DropzoneState } from "react-dropzone"
 import type {
   AspectRatio,
   GenerationJob,
@@ -47,15 +54,6 @@ import {
 } from "@/shared/ui/select"
 import { Skeleton } from "@/shared/ui/skeleton"
 import { Textarea } from "@/shared/ui/textarea"
-
-const maxReferenceImages = 5
-const maxReferenceImageBytes = 10 * 1024 * 1024
-
-function activeGenerationJobCount(jobs: Array<GenerationJob>) {
-  return jobs.filter(
-    (job) => job.status === "queued" || job.status === "running"
-  ).length
-}
 
 interface ReferenceImageAttachment {
   id: string
@@ -109,22 +107,18 @@ export function TopicWorkspace(props: {
     ? (props.creatingGenerationVersionCount ?? props.selectedVersionCount ?? 1)
     : activeJobCount
   const availableReferenceSlots =
-    maxReferenceImages - props.referenceImages.length
+    referenceImageConfig.maxFiles - props.referenceImages.length
   const referenceImageDropzone = useDropzone({
-    accept: {
-      "image/png": [".png"],
-      "image/jpeg": [".jpg", ".jpeg"],
-      "image/webp": [".webp"],
-    },
+    accept: referenceImageDropzoneAccept,
     disabled: isGenerating || availableReferenceSlots <= 0,
     maxFiles: Math.max(1, availableReferenceSlots),
-    maxSize: maxReferenceImageBytes,
+    maxSize: referenceImageConfig.maxBytes,
     multiple: true,
     noClick: true,
     noKeyboard: true,
     onDropAccepted: props.onAddReferenceImages,
     onDropRejected: (rejections) => {
-      props.onReferenceImageError(referenceDropErrorMessage(rejections))
+      props.onReferenceImageError(referenceImageDropErrorMessage(rejections))
     },
   })
   const isReferenceImageDragActive =
@@ -283,7 +277,7 @@ function PromptComposer(props: {
   onGenerate: () => void
 }) {
   const availableReferenceSlots =
-    maxReferenceImages - props.referenceImages.length
+    referenceImageConfig.maxFiles - props.referenceImages.length
   const showOriginalPrompt =
     props.isOptimizedPrompt && Boolean(props.originalPromptValue?.trim())
 
@@ -468,12 +462,14 @@ function ReferenceImageDropOverlay(props: { isRejecting: boolean }) {
           <ImageUp className="size-9" strokeWidth={1.75} />
         </div>
         <div className="text-2xl font-semibold tracking-tight">
-          {props.isRejecting ? "Image not supported" : "Add reference image"}
+          {props.isRejecting
+            ? referenceImageMessages.dropUnsupportedTitle
+            : referenceImageMessages.dropSupportedTitle}
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
           {props.isRejecting
-            ? "Drop a PNG, JPEG, or WebP image up to 10 MB."
-            : "Drop it anywhere to attach it to the prompt."}
+            ? referenceImageMessages.dropUnsupportedBody
+            : referenceImageMessages.dropSupportedBody}
         </p>
       </div>
     </div>
@@ -520,24 +516,6 @@ function ReferenceImageStrip(props: {
       </div>
     </div>
   )
-}
-
-function referenceDropErrorMessage(rejections: Array<FileRejection>) {
-  const firstError = rejections.at(0)?.errors.at(0)
-
-  if (firstError?.code === "file-too-large") {
-    return "Reference image must be 10 MB or smaller"
-  }
-
-  if (firstError?.code === "file-invalid-type") {
-    return "Reference image must be a PNG, JPEG, or WebP file"
-  }
-
-  if (firstError?.code === "too-many-files") {
-    return `You can attach up to ${maxReferenceImages} images`
-  }
-
-  return "Could not attach reference image"
 }
 
 function GalleryCanvas(props: {

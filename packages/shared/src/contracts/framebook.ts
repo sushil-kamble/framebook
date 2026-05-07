@@ -1,8 +1,8 @@
-export const aspectRatios = ["1:1", "3:4", "4:3", "16:9"] as const
+import { aspectRatios, generationVersionCounts } from "../config/framebook"
+
+export { aspectRatios, generationVersionCounts }
 
 export type AspectRatio = (typeof aspectRatios)[number]
-
-export const generationVersionCounts = [1, 2, 4] as const
 
 export type GenerationVersionCount = (typeof generationVersionCounts)[number]
 
