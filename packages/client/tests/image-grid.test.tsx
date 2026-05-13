@@ -157,6 +157,51 @@ describe("optimized image grids", () => {
     expect(onRemoveReferenceImage).toHaveBeenCalledWith("reference-1")
   })
 
+  it("allows clearing an optional creative mode without a dropdown option", () => {
+    const onCreativeModeChange = vi.fn()
+
+    render(
+      <TopicWorkspace
+        topic={topicSummary}
+        images={[]}
+        promptValue=""
+        referenceImages={[]}
+        selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
+        favoriteOnly={false}
+        job={null}
+        isEnhancing={false}
+        isCreatingGeneration={false}
+        isLoadingImages={false}
+        onBack={vi.fn()}
+        onEditTopic={vi.fn()}
+        onArchiveTopic={vi.fn()}
+        onPromptChange={vi.fn()}
+        onAddReferenceImages={vi.fn()}
+        onRemoveReferenceImage={vi.fn()}
+        onReferenceImageError={vi.fn()}
+        onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={onCreativeModeChange}
+        onEnhancePrompt={vi.fn()}
+        onGenerate={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onFavoriteFilterChange={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.queryByRole("option", { name: /No creative mode/u })
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear creative mode" }))
+
+    expect(onCreativeModeChange).toHaveBeenCalledWith("")
+  })
+
   it("accepts image drops from the full topic workspace", async () => {
     const onAddReferenceImages = vi.fn()
     const file = new File(["png"], "screen.png", { type: "image/png" })
@@ -262,9 +307,23 @@ describe("optimized image grids", () => {
       false
     )
     expect(screen.getByText("Image generation prompt")).toBeTruthy()
+    expect(
+      screen.queryByText(/Trusted Framebook generation contract:/)
+    ).toBeNull()
     expect(screen.getByText("Enhanced prompt")).toBeTruthy()
     expect(screen.queryByText("User prompt")).toBeNull()
     expect(screen.queryByText(imageRecord.rawPrompt)).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Full" }))
+    expect(
+      screen.getByText(/Trusted Framebook generation contract:/)
+    ).toBeTruthy()
+    expect(screen.getByText(/Final image prompt:/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Default" }))
+    expect(
+      screen.queryByText(/Trusted Framebook generation contract:/)
+    ).toBeNull()
 
     fireEvent.mouseEnter(
       detailContainer.querySelector("img")!.closest("button")!
@@ -510,10 +569,21 @@ const imageRecord: ImageRecord = {
   rawPrompt: "Mountain railway",
   enhancedPrompt: "Enhanced mountain railway.",
   finalPrompt: "Enhanced mountain railway.",
+  imageGenerationPrompt: `Trusted Framebook generation contract:
+- Generate exactly one Framebook image using the available image creation skill/tool.
+- Do not create a placeholder, SVG stand-in, HTML/CSS drawing, or text-only artifact. The output must be a real bitmap PNG image.
+
+Topic: Travel Posters
+Topic instruction: Use vintage travel poster style.
+Aspect ratio: 4:3
+
+Final image prompt:
+Enhanced mountain railway.`,
   aspectRatio: "4:3",
   topicSnapshot: {
     id: "topic-1",
     name: "Travel Posters",
+    description: "Poster studies.",
     instruction: "Use vintage travel poster style.",
     defaultAspectRatio: "4:3",
     basePromptDetails: "Mountain railway",

@@ -17,9 +17,8 @@ import {
   referenceImageMimeTypes,
 } from "./constants.mjs"
 import {
-  defaultCreativeModeId,
+  getCreativeMode,
   isCreativeModeId,
-  resolveCreativeMode,
 } from "@framebook/shared/creative-modes"
 import {
   createImageOptimizer,
@@ -29,7 +28,10 @@ import {
   variantFileName,
 } from "./image-optimizer.mjs"
 import { createFramebookStore } from "./storage.mjs"
-import { createCodexClient } from "#infra/agent-clients/codex.mjs"
+import {
+  buildImageGenerationPrompt,
+  createCodexClient,
+} from "#infra/agent-clients/codex.mjs"
 
 export function createFramebookService({
   store = createFramebookStore(),
@@ -216,7 +218,7 @@ export function createFramebookService({
   async function addImageRecord(input) {
     const topic = await ensureTopic(input.topicId)
     const now = new Date().toISOString()
-    const creativeModeId = normalizeCreativeModeId(
+    const creativeModeId = normalizeOptionalCreativeModeId(
       input.creativeModeId || topic.creativeModeId
     )
     const record = {
@@ -241,6 +243,10 @@ export function createFramebookService({
       referenceImages: normalizeReferenceImages(input.referenceImages),
       createdAt: input.createdAt || now,
     }
+    record.imageGenerationPrompt = buildStoredImageGenerationPrompt(
+      record,
+      topic
+    )
     const optimizedRecord = await maybeOptimizeImageRecord(record)
 
     await withMetadataWriteLock(async () => {
@@ -411,11 +417,10 @@ export function createFramebookService({
       : topic.defaultAspectRatio
     const versionCount = requireGenerationVersionCount(input.versionCount)
     const enhancedPrompt = optionalText(input.enhancedPrompt) || rawPrompt
-    const inputCreativeModeId = optionalText(input.creativeModeId)
-    const creativeModeId =
-      inputCreativeModeId === ""
-        ? normalizeCreativeModeId(topic.creativeModeId)
-        : requireCreativeModeId(inputCreativeModeId)
+    const creativeModeId = resolveGenerationCreativeModeId({
+      topic,
+      inputCreativeModeId: input.creativeModeId,
+    })
     const title =
       versionCount > 1
         ? await resolveImageTitle({
@@ -433,7 +438,7 @@ export function createFramebookService({
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
       aspectRatio,
-      creativeMode: resolveCreativeMode(creativeModeId),
+      creativeMode: getCreativeMode(creativeModeId) ?? null,
     })
     const createdJobs = []
 
@@ -558,13 +563,10 @@ export function createFramebookService({
 
       const outputDir = store.getTopicAssetDir(topic.id)
       const fileName = `${job.id}${generatedImageExtension}`
-      const creativeMode = resolveCreativeMode(job.creativeModeId)
       const generated = await codexClient.generateImage({
         prompt: job.finalPrompt,
-        rawPrompt: job.rawPrompt,
         aspectRatio: job.aspectRatio,
         topic,
-        creativeMode,
         referenceImages: referenceImagesWithPaths(
           topic.id,
           job.referenceImages
@@ -580,7 +582,7 @@ export function createFramebookService({
         enhancedPrompt: job.enhancedPrompt,
         finalPrompt: job.finalPrompt,
         aspectRatio: job.aspectRatio,
-        creativeModeId: creativeMode.id,
+        creativeModeId: job.creativeModeId,
         referenceImages: job.referenceImages,
         fileName: generated.fileName,
         mimeType: generated.mimeType,
@@ -622,7 +624,23 @@ export function createFramebookService({
   }
 
   async function listImageRecords() {
-    return (await store.listImages()).map(normalizeImageRecord)
+    const [images, topics] = await Promise.all([
+      store.listImages(),
+      store.listTopics(),
+    ])
+    const topicsById = new Map(topics.map((topic) => [topic.id, topic]))
+
+    return images.map(normalizeImageRecord).map((image) =>
+      image.imageGenerationPrompt
+        ? image
+        : {
+            ...image,
+            imageGenerationPrompt: buildStoredImageGenerationPrompt(
+              image,
+              topicForImagePrompt(image, topicsById)
+            ),
+          }
+    )
   }
 
   async function ensureImageOptimizations(images, shouldOptimize) {
@@ -818,6 +836,50 @@ export function createFramebookService({
     }))
   }
 
+  function buildStoredImageGenerationPrompt(image, topic) {
+    return buildImageGenerationPrompt({
+      prompt: image.finalPrompt,
+      aspectRatio: image.aspectRatio,
+      topic,
+      referenceImages: referenceImagesWithPaths(
+        image.topicId,
+        image.referenceImages
+      ),
+      outputPath: path.join(
+        store.getTopicAssetDir(image.topicId),
+        image.fileName
+      ),
+    })
+  }
+
+  function topicForImagePrompt(image, topicsById) {
+    const snapshot = image.topicSnapshot ?? {}
+    const current = topicsById.get(image.topicId)
+
+    return normalizeTopic({
+      id: image.topicId,
+      name: optionalText(snapshot.name) || optionalText(current?.name),
+      description:
+        optionalText(snapshot.description) ||
+        optionalText(current?.description),
+      instruction:
+        optionalText(snapshot.instruction) ||
+        optionalText(current?.instruction),
+      defaultAspectRatio:
+        snapshot.defaultAspectRatio ||
+        current?.defaultAspectRatio ||
+        image.aspectRatio,
+      basePromptDetails:
+        optionalText(snapshot.basePromptDetails) ||
+        optionalText(current?.basePromptDetails),
+      creativeModeId:
+        snapshot.creativeModeId ||
+        current?.creativeModeId ||
+        image.creativeMode?.id ||
+        "",
+    })
+  }
+
   async function resolveEnhancedPrompt({ rawPrompt }) {
     return typeof codexClient.enhancePrompt === "function"
       ? await codexClient.enhancePrompt({ rawPrompt })
@@ -967,7 +1029,7 @@ function normalizeImageRecord(image) {
   const topicSnapshot = image.topicSnapshot
     ? {
         ...image.topicSnapshot,
-        creativeModeId: normalizeCreativeModeId(
+        creativeModeId: normalizeOptionalCreativeModeId(
           image.topicSnapshot.creativeModeId
         ),
       }
@@ -975,7 +1037,7 @@ function normalizeImageRecord(image) {
   const creativeMode = image.creativeMode
     ? {
         ...image.creativeMode,
-        id: normalizeCreativeModeId(image.creativeMode.id),
+        id: normalizeOptionalCreativeModeId(image.creativeMode.id),
       }
     : snapshotCreativeMode(topicSnapshot?.creativeModeId)
 
@@ -1172,7 +1234,7 @@ function normalizeGenerationJob(job) {
   return {
     ...job,
     title: normalizeImageTitle(job.title) || titleFromPrompt(job.rawPrompt),
-    creativeModeId: normalizeCreativeModeId(job.creativeModeId),
+    creativeModeId: normalizeOptionalCreativeModeId(job.creativeModeId),
     referenceImages: normalizeReferenceImages(job.referenceImages),
   }
 }
@@ -1204,6 +1266,7 @@ function snapshotTopic(topic) {
   return {
     id: topic.id,
     name: topic.name,
+    description: topic.description,
     instruction: topic.instruction,
     defaultAspectRatio: topic.defaultAspectRatio,
     basePromptDetails: topic.basePromptDetails,
@@ -1212,7 +1275,16 @@ function snapshotTopic(topic) {
 }
 
 function snapshotCreativeMode(creativeModeId) {
-  const mode = resolveCreativeMode(creativeModeId)
+  const mode = getCreativeMode(creativeModeId)
+  if (!mode) {
+    return {
+      id: "",
+      name: "",
+      basePromptDetails: "",
+      creativeDirection: "",
+    }
+  }
+
   return {
     id: mode.id,
     name: mode.name,
@@ -1221,12 +1293,16 @@ function snapshotCreativeMode(creativeModeId) {
   }
 }
 
-function normalizeCreativeModeId(value) {
-  return isCreativeModeId(value) ? value : defaultCreativeModeId
-}
-
 function normalizeOptionalCreativeModeId(value) {
   return isCreativeModeId(value) ? value : ""
+}
+
+function resolveGenerationCreativeModeId({ topic, inputCreativeModeId }) {
+  if (inputCreativeModeId === undefined) {
+    return normalizeOptionalCreativeModeId(topic.creativeModeId)
+  }
+
+  return optionalCreativeModeId(inputCreativeModeId)
 }
 
 function optionalCreativeModeId(value) {

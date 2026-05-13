@@ -1,6 +1,6 @@
-import { creativeModeCatalog, defaultCreativeModeId } from "./catalog.mjs"
+import { creativeModeCatalog } from "./catalog.mjs"
 
-export { creativeModeCatalog, defaultCreativeModeId } from "./catalog.mjs"
+export { creativeModeCatalog } from "./catalog.mjs"
 
 export function listCreativeModes() {
   return creativeModeCatalog
@@ -18,6 +18,5 @@ export function isCreativeModeId(value) {
 }
 
 export function resolveCreativeMode(id) {
-  const mode = id ? getCreativeMode(id) : undefined
-  return mode ?? getCreativeMode(defaultCreativeModeId)
+  return id ? getCreativeMode(id) : undefined
 }

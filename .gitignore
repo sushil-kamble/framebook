@@ -15,6 +15,7 @@ todos.json
 .temp
 .turbo
 coverage
+.playwright-mcp/
 *.db
 *.db-shm
 *.db-wal

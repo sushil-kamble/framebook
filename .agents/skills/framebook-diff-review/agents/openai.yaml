@@ -1,0 +1,4 @@
+interface:
+  display_name: "Framebook Diff Review"
+  short_description: "Review Framebook diffs for project fit"
+  default_prompt: "Use $framebook-diff-review to review this Framebook diff for project intent, regressions, tests, quality, and dead code."

@@ -40,7 +40,7 @@ export function normalizeTopicDraft(draft: TopicDraft): CreateTopicRequest {
     instruction: draft.instruction.trim(),
     defaultAspectRatio: draft.defaultAspectRatio,
     basePromptDetails: draft.basePromptDetails.trim(),
-    creativeModeId: draft.creativeModeId || undefined,
+    creativeModeId: draft.creativeModeId,
   }
 }
 

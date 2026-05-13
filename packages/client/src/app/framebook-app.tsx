@@ -7,7 +7,6 @@ import {
   draftFromTopic,
   normalizeTopicDraft,
 } from "@app/lib/topic-form"
-import { defaultCreativeModeId } from "@framebook/shared/creative-modes"
 import { framebookApi } from "@shared/api/framebook"
 import { Sidebar } from "./components/app-sidebar"
 import { EmptyPanel } from "./components/empty-panel"
@@ -110,9 +109,7 @@ export function FramebookApp({
   const referenceImagesRef = useRef(referenceImages)
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
-  const [selectedCreativeModeId, setSelectedCreativeModeId] = useState(
-    defaultCreativeModeId
-  )
+  const [selectedCreativeModeId, setSelectedCreativeModeId] = useState("")
   const [selectedVersionCount, setSelectedVersionCount] =
     useState<GenerationVersionCount>(1)
   const [favoriteOnly, setFavoriteOnly] = useState(false)
@@ -393,9 +390,7 @@ export function FramebookApp({
       return
     }
     setSelectedAspectRatio(activeTopicDefaultAspectRatio)
-    setSelectedCreativeModeId(
-      activeTopicCreativeModeId || defaultCreativeModeId
-    )
+    setSelectedCreativeModeId(activeTopicCreativeModeId || "")
     void loadImages(activeTopicId, favoriteOnly)
   }, [
     activeTopicCreativeModeId,
@@ -595,7 +590,7 @@ export function FramebookApp({
   const openTopic = (topic: TopicSummary, nextScreen: Screen = "topic") => {
     setActiveTopicId(topic.id)
     setSelectedAspectRatio(topic.defaultAspectRatio)
-    setSelectedCreativeModeId(topic.creativeModeId || defaultCreativeModeId)
+    setSelectedCreativeModeId(topic.creativeModeId || "")
     setError(null)
     navigateTo(nextScreen, topic.id)
   }

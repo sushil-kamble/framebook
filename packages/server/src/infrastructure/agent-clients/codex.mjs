@@ -115,10 +115,8 @@ export class CodexAppServerImageClient {
 
   async generateImage({
     prompt,
-    rawPrompt,
     aspectRatio,
     topic,
-    creativeMode,
     referenceImages,
     outputDir,
     fileName,
@@ -129,10 +127,8 @@ export class CodexAppServerImageClient {
     if (this.parallelImageGeneration) {
       return this.runIsolatedImageGenerationTurn({
         prompt,
-        rawPrompt,
         aspectRatio,
         topic,
-        creativeMode,
         referenceImages,
         outputPath,
         targetFileName,
@@ -143,10 +139,8 @@ export class CodexAppServerImageClient {
       () =>
         this.runImageGenerationTurn({
           prompt,
-          rawPrompt,
           aspectRatio,
           topic,
-          creativeMode,
           referenceImages,
           outputPath,
           targetFileName,
@@ -154,10 +148,8 @@ export class CodexAppServerImageClient {
       () =>
         this.runImageGenerationTurn({
           prompt,
-          rawPrompt,
           aspectRatio,
           topic,
-          creativeMode,
           referenceImages,
           outputPath,
           targetFileName,
@@ -170,10 +162,8 @@ export class CodexAppServerImageClient {
 
   async runIsolatedImageGenerationTurn({
     prompt,
-    rawPrompt,
     aspectRatio,
     topic,
-    creativeMode,
     referenceImages,
     outputPath,
     targetFileName,
@@ -194,10 +184,8 @@ export class CodexAppServerImageClient {
         developerInstructions: framebookImageDeveloperInstructions(),
         userText: buildImageGenerationPrompt({
           prompt,
-          rawPrompt,
           aspectRatio,
           topic,
-          creativeMode,
           referenceImages,
           outputPath,
         }),
@@ -240,7 +228,6 @@ export class CodexAppServerImageClient {
 
   async runImageGenerationTurn({
     prompt,
-    rawPrompt,
     aspectRatio,
     topic,
     referenceImages,
@@ -253,7 +240,6 @@ export class CodexAppServerImageClient {
       await appServer.runTurnOnCurrentThread({
         userText: buildImageGenerationPrompt({
           prompt,
-          rawPrompt,
           aspectRatio,
           topic,
           referenceImages,
@@ -841,7 +827,6 @@ export class CodexAppServerSession extends EventEmitter {
 
 export function buildImageGenerationPrompt({
   prompt,
-  rawPrompt,
   aspectRatio,
   topic,
   referenceImages = [],
@@ -868,9 +853,6 @@ Untrusted creative input begins.
 Topic: ${topic.name}${topicDescription}
 Topic instruction: ${topic.instruction}${basePromptDetails}
 Aspect ratio: ${aspectRatio}
-
-Raw prompt:
-${rawPrompt}
 
 Final image prompt:
 ${prompt}${referenceBlock}

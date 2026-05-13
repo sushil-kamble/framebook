@@ -124,5 +124,3 @@ export const creativeModeCatalog = [
       "Preserve any headline, byline, or caption text exactly as written. Maintain column alignment and a believable type hierarchy. Avoid color photography, modern sans-serif body type, and digital UI cues.",
   },
 ]
-
-export const defaultCreativeModeId = "animal-infographic"

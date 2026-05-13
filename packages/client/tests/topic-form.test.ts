@@ -30,4 +30,16 @@ describe("topic form helpers", () => {
       description: "Rainy hill-station trip",
     })
   })
+
+  it("preserves an explicit empty creative mode for updates", () => {
+    expect(
+      normalizeTopicDraft({
+        ...defaultTopicDraft,
+        name: "Plain Prompt",
+        creativeModeId: "",
+      })
+    ).toMatchObject({
+      creativeModeId: "",
+    })
+  })
 })

@@ -6,6 +6,7 @@ import {
   FolderOpen,
   Share2,
 } from "lucide-react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { copyTextToClipboard } from "../lib/share"
@@ -25,6 +26,11 @@ export function ImageDetailPage(props: {
   onShareImage: (image: ImageRecord) => Promise<void>
 }) {
   const image = props.image
+  const [promptView, setPromptView] = useState<"default" | "full">("default")
+
+  useEffect(() => {
+    setPromptView("default")
+  }, [image?.id])
 
   if (!image) {
     return <ImageDetailSkeleton />
@@ -37,6 +43,8 @@ export function ImageDetailPage(props: {
     image.enhancedPrompt.trim() === image.rawPrompt.trim()
       ? "Exact prompt"
       : "Enhanced prompt"
+  const fullPrompt = image.imageGenerationPrompt || image.finalPrompt
+  const promptValue = promptView === "full" ? fullPrompt : image.finalPrompt
 
   return (
     <div className="mx-auto flex flex-col gap-5">
@@ -111,11 +119,16 @@ export function ImageDetailPage(props: {
           ) : null}
           <PromptBlock
             label="Image generation prompt"
-            value={image.finalPrompt}
+            value={promptValue}
+            view={promptView}
+            onViewChange={setPromptView}
+            hasFullPrompt={fullPrompt !== image.finalPrompt}
           />
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <MetaItem label="Topic" value={image.topicSnapshot.name} />
-            <MetaItem label="Creative mode" value={image.creativeMode.name} />
+            {image.creativeMode.id ? (
+              <MetaItem label="Creative mode" value={image.creativeMode.name} />
+            ) : null}
             <MetaItem label="Prompt source" value={promptSource} />
             <MetaItem label="Aspect ratio" value={image.aspectRatio} />
             <MetaItem label="Created" value={formatDate(image.createdAt)} />
@@ -187,11 +200,43 @@ function DetailPreviewImage(props: {
   )
 }
 
-function PromptBlock({ label, value }: { label: string; value: string }) {
+function PromptBlock({
+  label,
+  value,
+  view,
+  onViewChange,
+  hasFullPrompt,
+}: {
+  label: string
+  value: string
+  view: "default" | "full"
+  onViewChange: (view: "default" | "full") => void
+  hasFullPrompt: boolean
+}) {
   return (
     <div>
-      <div className="mb-1.5 text-sm font-medium text-muted-foreground">
-        {label}
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-medium text-muted-foreground">{label}</div>
+        {hasFullPrompt ? (
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant={view === "default" ? "default" : "outline"}
+              size="xs"
+              onClick={() => onViewChange("default")}
+            >
+              Default
+            </Button>
+            <Button
+              type="button"
+              variant={view === "full" ? "default" : "outline"}
+              size="xs"
+              onClick={() => onViewChange("full")}
+            >
+              Full
+            </Button>
+          </div>
+        ) : null}
       </div>
       <div className="relative">
         <Button

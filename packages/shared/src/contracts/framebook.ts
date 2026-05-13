@@ -38,6 +38,7 @@ export interface TopicSummary extends Topic {
 export interface TopicSnapshot {
   id: string
   name: string
+  description: string
   instruction: string
   defaultAspectRatio: AspectRatio
   basePromptDetails: string
@@ -70,6 +71,7 @@ export interface ImageRecord {
   rawPrompt: string
   enhancedPrompt: string
   finalPrompt: string
+  imageGenerationPrompt: string
   aspectRatio: AspectRatio
   topicSnapshot: TopicSnapshot
   creativeMode: CreativeModeSnapshot

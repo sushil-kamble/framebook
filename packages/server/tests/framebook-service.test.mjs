@@ -356,6 +356,44 @@ describe("framebook service", () => {
     expect(job.finalPrompt).not.toContain("This should not be used.")
   })
 
+  it("does not send raw prompt to the image generator client", async () => {
+    const fakeCodexClient = createFakeCodexClient()
+    let capturedInput
+    const imageClientService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...fakeCodexClient,
+        async generateImage(input) {
+          capturedInput = input
+          return fakeCodexClient.generateImage(input)
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(imageClientService)
+    const job = await imageClientService.createGeneration(topic.id, {
+      rawPrompt: "Keep this raw prompt for metadata only.",
+      enhancedPrompt: "Use this final prompt for image generation.",
+      aspectRatio: "16:9",
+    })
+
+    await imageClientService.runGenerationJob(job.id)
+
+    expect(capturedInput).toMatchObject({
+      prompt: expect.stringContaining("Use this final prompt"),
+      aspectRatio: "16:9",
+      topic: expect.objectContaining({ id: topic.id }),
+    })
+    expect(capturedInput).not.toHaveProperty("rawPrompt")
+    await expect(imageClientService.listImages(topic.id)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rawPrompt: "Keep this raw prompt for metadata only.",
+        }),
+      ])
+    )
+  })
+
   it("runs a generation job and saves the generated file and image metadata", async () => {
     const topic = await createTopic(service)
     const job = await service.createGeneration(topic.id, {
@@ -394,6 +432,22 @@ describe("framebook service", () => {
       height: 1,
       placeholderColor: expect.stringMatching(/^#[0-9a-f]{6}$/u),
     })
+    expect(images[0].topicSnapshot).toMatchObject({
+      description: topic.description,
+    })
+    expect(images[0].imageGenerationPrompt).toContain(
+      "Topic: Monsoon Trip Story"
+    )
+    expect(images[0].imageGenerationPrompt).toContain(
+      `Description: ${topic.description}`
+    )
+    expect(images[0].imageGenerationPrompt).toContain(
+      "Final image prompt:\nA red train crossing a stone viaduct"
+    )
+    expect(images[0].imageGenerationPrompt).toContain(
+      path.join(dataDir, "images", topic.id, `${job.id}.png`)
+    )
+    expect(images[0].imageGenerationPrompt).not.toContain("Raw prompt:")
     expect(images[0].variants).toHaveLength(4)
     expect(images[0].variants).toEqual(
       expect.arrayContaining([
@@ -411,6 +465,36 @@ describe("framebook service", () => {
     await expect(
       access(path.join(dataDir, "images", topic.id, `${job.id}-480w.webp`))
     ).resolves.toBeUndefined()
+  })
+
+  it("does not apply a creative mode when none is selected", async () => {
+    const topic = await service.createTopic({
+      name: "Plain Prompt",
+      defaultAspectRatio: "16:9",
+    })
+    const job = await service.createGeneration(topic.id, {
+      rawPrompt: "A quiet desk with a notebook and lamp",
+      aspectRatio: "16:9",
+      creativeModeId: "",
+    })
+
+    expect(job.creativeModeId).toBe("")
+    expect(job.finalPrompt).toContain("A quiet desk with a notebook and lamp")
+    expect(job.finalPrompt).not.toContain("Creative mode")
+    expect(job.finalPrompt).not.toContain("Animal Infographic")
+
+    const finishedJob = await service.runGenerationJob(job.id)
+    expect(finishedJob.status).toBe("succeeded")
+
+    const images = await service.listImages(topic.id)
+    expect(images[0]).toMatchObject({
+      creativeMode: {
+        id: "",
+        name: "",
+        basePromptDetails: "",
+        creativeDirection: "",
+      },
+    })
   })
 
   it("backfills optimization metadata for existing image records on list", async () => {
@@ -878,6 +962,15 @@ describe("framebook service", () => {
     const images = await referenceService.listImages(topic.id)
 
     expect(images[0].referenceImages).toEqual(job.referenceImages)
+    expect(images[0].imageGenerationPrompt).toContain("Reference images:")
+    expect(images[0].imageGenerationPrompt).toContain(
+      path.join(
+        referenceDataDir,
+        "images",
+        topic.id,
+        job.referenceImages[0].fileName
+      )
+    )
     expect(capturedReferenceImages).toHaveLength(1)
     expect(capturedReferenceImages[0]).toMatchObject({
       originalName: "subject.png",
@@ -992,7 +1085,6 @@ describe("framebook service", () => {
     const outputPath = path.join(dataDir, "images", topic.id, "image.png")
     const prompt = buildImageGenerationPrompt({
       prompt: "Final cinematic tea stall prompt",
-      rawPrompt: "Morning tea stall",
       aspectRatio: "16:9",
       topic,
       outputPath,
@@ -1001,7 +1093,7 @@ describe("framebook service", () => {
     expect(prompt).toContain("image creation skill/tool")
     expect(prompt).toContain("Do not create a placeholder")
     expect(prompt).toContain("Aspect ratio: 16:9")
-    expect(prompt).toContain("Morning tea stall")
+    expect(prompt).not.toContain("Raw prompt:")
     expect(prompt).toContain("Final cinematic tea stall prompt")
     expect(prompt).toContain(outputPath)
   })
@@ -1016,7 +1108,6 @@ describe("framebook service", () => {
     )
     const prompt = buildImageGenerationPrompt({
       prompt: "Change the t-shirt color but preserve the face.",
-      rawPrompt: "Change the t-shirt color",
       aspectRatio: "4:3",
       topic,
       referenceImages: [

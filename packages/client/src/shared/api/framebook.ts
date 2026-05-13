@@ -195,7 +195,9 @@ function generationFormData(
   appendFormField(formData, "enhancedPrompt", input.enhancedPrompt)
   appendFormField(formData, "title", input.title)
   appendFormField(formData, "aspectRatio", input.aspectRatio)
-  appendFormField(formData, "creativeModeId", input.creativeModeId)
+  appendFormField(formData, "creativeModeId", input.creativeModeId, {
+    includeEmpty: true,
+  })
   appendFormField(
     formData,
     "versionCount",
@@ -212,9 +214,10 @@ function generationFormData(
 function appendFormField(
   formData: FormData,
   name: string,
-  value: string | undefined
+  value: string | undefined,
+  options: { includeEmpty?: boolean } = {}
 ) {
-  if (value !== undefined && value !== "") {
+  if (value !== undefined && (options.includeEmpty || value !== "")) {
     formData.append(name, value)
   }
 }

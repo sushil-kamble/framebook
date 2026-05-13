@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ArrowLeft, Loader2, Pencil } from "lucide-react"
+import { ArrowLeft, Loader2, Pencil, X } from "lucide-react"
 import { validateTopicDraft } from "@app/lib/topic-form"
 import { aspectRatioOptions, creativeModeOptions } from "../lib/constants"
 import { AppBreadcrumb } from "./app-breadcrumb"
@@ -224,24 +224,38 @@ function CreativeModePicker({
       <label className="text-sm font-semibold" htmlFor="topic-creative-mode">
         Creative mode
       </label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger
-          id="topic-creative-mode"
-          className="topic-editor-input w-full"
-          aria-label="Creative mode"
-        >
-          <SelectValue placeholder="Select creative mode" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {creativeModeOptions.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.name}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <div className="flex gap-2">
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger
+            id="topic-creative-mode"
+            className="topic-editor-input min-w-0 flex-1"
+            aria-label="Creative mode"
+          >
+            <SelectValue placeholder="Select creative mode" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {creativeModeOptions.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        {value ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label="Clear creative mode"
+            title="Clear creative mode"
+            onClick={() => onChange("")}
+          >
+            <X />
+          </Button>
+        ) : null}
+      </div>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </div>
   )

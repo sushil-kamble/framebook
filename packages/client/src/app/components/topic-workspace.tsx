@@ -404,26 +404,40 @@ function PromptComposer(props: {
             </SelectContent>
           </Select>
 
-          <Select
-            value={props.selectedCreativeModeId}
-            onValueChange={props.onCreativeModeChange}
-          >
-            <SelectTrigger
-              className="w-full text-xs sm:w-52"
-              aria-label="Creative mode"
+          <div className="flex w-full gap-1 sm:w-auto">
+            <Select
+              value={props.selectedCreativeModeId}
+              onValueChange={props.onCreativeModeChange}
             >
-              <SelectValue placeholder="Mode" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {creativeModeOptions.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                    {option.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                className="min-w-0 flex-1 text-xs sm:w-52"
+                aria-label="Creative mode"
+              >
+                <SelectValue placeholder="Mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {creativeModeOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {props.selectedCreativeModeId ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="Clear creative mode"
+                title="Clear creative mode"
+                onClick={() => props.onCreativeModeChange("")}
+              >
+                <X />
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex gap-2">

@@ -1,8 +1,8 @@
-import { creativeModeCatalog, defaultCreativeModeId } from "./catalog"
+import { creativeModeCatalog } from "./catalog"
 import type { CreativeMode } from "./catalog"
 
 export type { CreativeMode } from "./catalog"
-export { creativeModeCatalog, defaultCreativeModeId } from "./catalog"
+export { creativeModeCatalog } from "./catalog"
 
 export function listCreativeModes(): ReadonlyArray<CreativeMode> {
   return creativeModeCatalog
@@ -21,7 +21,6 @@ export function isCreativeModeId(value: unknown): value is string {
 
 export function resolveCreativeMode(
   id: string | null | undefined
-): CreativeMode {
-  const mode = id ? getCreativeMode(id) : undefined
-  return mode ?? getCreativeMode(defaultCreativeModeId)!
+): CreativeMode | undefined {
+  return id ? getCreativeMode(id) : undefined
 }

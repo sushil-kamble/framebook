@@ -232,6 +232,29 @@ describe("framebook api client", () => {
     )
   })
 
+  it("can send an explicit empty creative mode when updating a topic", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ topic: { id: "topic-1" } }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.updateTopic("topic-1", {
+      name: "Plain Prompt",
+      creativeModeId: "",
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "Plain Prompt",
+          creativeModeId: "",
+        }),
+      })
+    )
+  })
+
   it("sends multipart form data when creating a generation with reference images", async () => {
     const fetcher = vi.fn<typeof fetch>(() =>
       Promise.resolve(Response.json({ job: { id: "job-1" } }))
@@ -271,5 +294,30 @@ describe("framebook api client", () => {
     ) as File
     expect(uploadedReference.name).toBe(referenceImage.name)
     expect(uploadedReference.type).toBe(referenceImage.type)
+  })
+
+  it("preserves an explicit empty creative mode in multipart generation requests", async () => {
+    const fetcher = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" } }))
+    )
+    const api = createFramebookApi(fetcher)
+    const referenceImage = new File(["png"], "reference.png", {
+      type: "image/png",
+    })
+
+    await api.createGeneration(
+      "topic-1",
+      {
+        rawPrompt: "A quiet desk",
+        creativeModeId: "",
+      },
+      [referenceImage]
+    )
+
+    const init = fetcher.mock.calls[0]?.[1] as RequestInit
+
+    expect(init.body).toBeInstanceOf(FormData)
+    expect((init.body as FormData).has("creativeModeId")).toBe(true)
+    expect((init.body as FormData).get("creativeModeId")).toBe("")
   })
 })
