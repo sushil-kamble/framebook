@@ -107,7 +107,7 @@ export function imageSrcSet(image: ImageRecord) {
 
 export function imageGridSizes(kind: "topic" | "starred") {
   if (kind === "topic") {
-    return "(min-width: 1024px) 33vw, 33vw"
+    return "(min-width: 1536px) 33vw, (min-width: 768px) 50vw, 100vw"
   }
 
   return "(min-width: 768px) 50vw, 50vw"
