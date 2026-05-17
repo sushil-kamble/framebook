@@ -6,12 +6,16 @@ import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createHttpServer } from "../src/app/http-server.mjs"
 import { setFramebookServiceForTesting } from "../src/app/router.mjs"
-import { createFramebookService } from "../src/domains/framebook/service.mjs"
+import {
+  createFramebookService,
+  readMaxParallelImageGenerations,
+} from "../src/domains/framebook/service.mjs"
 import { createFramebookStore } from "../src/domains/framebook/storage.mjs"
 import {
   buildImageTitlePrompt,
   buildImageGenerationPrompt,
   buildPromptEnhancementPrompt,
+  buildResearchContextPrompt,
   CodexAppServerImageClient,
   CodexAppServerSession,
   createCodexClient,
@@ -354,6 +358,38 @@ describe("framebook service", () => {
     expect(job.enhancedPrompt).toBe("Use exactly this prompt.")
     expect(job.finalPrompt).toContain("Use exactly this prompt.")
     expect(job.finalPrompt).not.toContain("This should not be used.")
+  })
+
+  it("injects web research context only when requested", async () => {
+    const fakeCodexClient = createFakeCodexClient()
+    let capturedResearchInput
+    const researchService = createFramebookService({
+      store: createFramebookStore({ dataDir }),
+      codexClient: {
+        ...fakeCodexClient,
+        async researchContext(input) {
+          capturedResearchInput = input
+          return "- Triund is a trek near McLeod Ganj in Himachal Pradesh."
+        },
+      },
+      autoRunJobs: false,
+    })
+    const topic = await createTopic(researchService)
+    const job = await researchService.createGeneration(topic.id, {
+      rawPrompt: "Triund trek poster",
+      enhancedPrompt: "Generate a Triund trek poster.",
+      contextMode: "web",
+    })
+
+    expect(capturedResearchInput).toMatchObject({
+      topic: expect.objectContaining({ id: topic.id }),
+      rawPrompt: "Triund trek poster",
+      enhancedPrompt: "Generate a Triund trek poster.",
+    })
+    expect(job.finalPrompt).toContain("Research context:")
+    expect(job.finalPrompt).toContain("Triund is a trek")
+    expect(job.finalPrompt).toContain("Research context rules:")
+    expect(job.finalPrompt).toContain("Aspect ratio: 4:3")
   })
 
   it("does not send raw prompt to the image generator client", async () => {
@@ -892,6 +928,120 @@ describe("framebook service", () => {
     await expect(autoService.listImages(topic.id)).resolves.toHaveLength(1)
   })
 
+  it("bounds auto-started image generation jobs and starts queued jobs as slots open", async () => {
+    const fakeCodexClient = createFakeCodexClient()
+    const releases = []
+    let startedGenerationCount = 0
+    const boundedService = createFramebookService({
+      store: createFramebookStore({ dataDir: path.join(dataDir, "bounded") }),
+      codexClient: {
+        async generateImage(input) {
+          startedGenerationCount += 1
+          await new Promise((resolve) => {
+            releases.push(resolve)
+          })
+          return fakeCodexClient.generateImage(input)
+        },
+      },
+      autoRunJobs: true,
+      maxParallelImageGenerations: 2,
+    })
+    const topic = await createTopic(boundedService)
+
+    await boundedService.createGeneration(topic.id, {
+      rawPrompt: "A four-part poster study",
+      aspectRatio: "4:3",
+      versionCount: 4,
+    })
+
+    await waitForCondition(() => startedGenerationCount === 2)
+    let jobs = await boundedService.listGenerationJobs(topic.id)
+    expect(countJobStatuses(jobs)).toMatchObject({ queued: 2, running: 2 })
+
+    releases.shift()?.()
+    await waitForCondition(async () => {
+      jobs = await boundedService.listGenerationJobs(topic.id)
+      return (
+        startedGenerationCount === 3 && countJobStatuses(jobs).succeeded === 1
+      )
+    })
+    expect(countJobStatuses(jobs)).toMatchObject({
+      queued: 1,
+      running: 2,
+      succeeded: 1,
+    })
+
+    await finishReleasedGenerationJobs(boundedService, topic.id, releases)
+    expect(
+      countJobStatuses(await boundedService.listGenerationJobs(topic.id))
+    ).toMatchObject({ succeeded: 4 })
+  })
+
+  it("releases a bounded generation slot after a failed job", async () => {
+    const fakeCodexClient = createFakeCodexClient()
+    let generationCalls = 0
+    const boundedService = createFramebookService({
+      store: createFramebookStore({
+        dataDir: path.join(dataDir, "failed-slot"),
+      }),
+      codexClient: {
+        async generateImage(input) {
+          generationCalls += 1
+
+          if (generationCalls === 1) {
+            throw new Error("first generation failed")
+          }
+
+          return fakeCodexClient.generateImage(input)
+        },
+      },
+      autoRunJobs: true,
+      maxParallelImageGenerations: 1,
+    })
+    const topic = await createTopic(boundedService)
+
+    await boundedService.createGeneration(topic.id, {
+      rawPrompt: "A two-part poster study",
+      aspectRatio: "4:3",
+      versionCount: 2,
+    })
+
+    await waitForCondition(async () => {
+      const jobs = await boundedService.listGenerationJobs(topic.id)
+      const counts = countJobStatuses(jobs)
+      return counts.failed === 1 && counts.succeeded === 1
+    })
+
+    expect(
+      countJobStatuses(await boundedService.listGenerationJobs(topic.id))
+    ).toMatchObject({ failed: 1, succeeded: 1 })
+    await expect(boundedService.listImages(topic.id)).resolves.toHaveLength(1)
+  })
+
+  it("parses the max parallel image generation env var", () => {
+    expect(readMaxParallelImageGenerations({})).toBe(2)
+    expect(
+      readMaxParallelImageGenerations({
+        FRAMEBOOK_MAX_PARALLEL_IMAGE_GENERATIONS: "4",
+      })
+    ).toBe(4)
+    expect(
+      readMaxParallelImageGenerations({
+        FRAMEBOOK_MAX_PARALLEL_IMAGE_GENERATIONS: "not-a-number",
+      })
+    ).toBe(2)
+    expect(
+      readMaxParallelImageGenerations({
+        FRAMEBOOK_MAX_PARALLEL_IMAGE_GENERATIONS: "0",
+      })
+    ).toBe(2)
+    expect(
+      readMaxParallelImageGenerations({
+        FRAMEBOOK_MAX_PARALLEL_IMAGE_GENERATIONS: "-1",
+      })
+    ).toBe(2)
+  })
+
   it("does not rerun terminal generation jobs", async () => {
     const topic = await createTopic(service)
     const job = await service.createGeneration(topic.id, {
@@ -1141,6 +1291,22 @@ describe("framebook service", () => {
     expect(prompt).not.toMatch(/aspect ratio|1:1|resolution|quality/iu)
   })
 
+  it("builds the codex app-server research context contract", async () => {
+    const topic = await createTopic(service)
+    const prompt = buildResearchContextPrompt({
+      topic,
+      rawPrompt: "Generate an image for a lesser-known trek.",
+      enhancedPrompt: "Generate an image for a lesser-known trek.",
+    })
+
+    expect(prompt).toContain("Use web search")
+    expect(prompt).toContain("Return only the context block")
+    expect(prompt).toContain("Do not include image composition")
+    expect(prompt).toContain("Do not invent facts")
+    expect(prompt).toContain("Generate an image for a lesser-known trek.")
+    expect(prompt).toContain(topic.name)
+  })
+
   it("uses separate codex app-server model and effort per operation", async () => {
     const topic = await createTopic(service)
     const sessions = []
@@ -1159,6 +1325,11 @@ describe("framebook service", () => {
         rawPrompt: "Morning tea stall",
       })
       await client.generateTitle({
+        topic,
+        rawPrompt: "Morning tea stall",
+        enhancedPrompt: "Enhanced morning tea stall",
+      })
+      await client.researchContext({
         topic,
         rawPrompt: "Morning tea stall",
         enhancedPrompt: "Enhanced morning tea stall",
@@ -1195,6 +1366,20 @@ describe("framebook service", () => {
           effort: "none",
           serviceTier: undefined,
           appServerArgs: ["--disable", "plugins", "--disable", "apps"],
+          logStderr: false,
+        },
+        {
+          model: "gpt-5.5",
+          effort: "medium",
+          serviceTier: undefined,
+          appServerArgs: [
+            "--disable",
+            "plugins",
+            "--disable",
+            "apps",
+            "--config",
+            'web_search="live"',
+          ],
           logStderr: false,
         },
         {
@@ -2001,4 +2186,43 @@ async function waitForJobStatus(service, jobId, status) {
   }
 
   throw new Error(`Generation job ${jobId} did not reach ${status}`)
+}
+
+async function waitForCondition(predicate) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (await predicate()) {
+      return
+    }
+
+    await sleep(10)
+  }
+
+  throw new Error("Condition was not met")
+}
+
+function countJobStatuses(jobs) {
+  return jobs.reduce(
+    (counts, job) => ({
+      ...counts,
+      [job.status]: counts[job.status] + 1,
+    }),
+    { queued: 0, running: 0, succeeded: 0, failed: 0 }
+  )
+}
+
+async function finishReleasedGenerationJobs(service, topicId, releases) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    for (const release of releases.splice(0)) {
+      release()
+    }
+
+    const jobs = await service.listGenerationJobs(topicId)
+    if (jobs.every((job) => job.status === "succeeded")) {
+      return
+    }
+
+    await sleep(10)
+  }
+
+  throw new Error("Generation jobs did not finish")
 }

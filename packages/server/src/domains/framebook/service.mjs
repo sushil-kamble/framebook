@@ -33,14 +33,20 @@ import {
   createCodexClient,
 } from "#infra/agent-clients/codex.mjs"
 
+export const defaultMaxParallelImageGenerations = 2
+
 export function createFramebookService({
   store = createFramebookStore(),
   codexClient = createCodexClient(),
   imageOptimizer = createImageOptimizer(),
   autoRunJobs = true,
+  maxParallelImageGenerations = readMaxParallelImageGenerations(),
 } = {}) {
   const jobRunners = new Map()
   let metadataWriteQueue = Promise.resolve()
+  let generationQueueDraining = false
+  let generationQueueDrainRequested = false
+  let closed = false
   prewarmImageGenerator(codexClient)
   prewarmPromptEnhancer(codexClient)
 
@@ -417,6 +423,13 @@ export function createFramebookService({
       : topic.defaultAspectRatio
     const versionCount = requireGenerationVersionCount(input.versionCount)
     const enhancedPrompt = optionalText(input.enhancedPrompt) || rawPrompt
+    const contextMode = requireResearchContextMode(input.contextMode)
+    const researchContext = await resolveResearchContext({
+      mode: contextMode,
+      topic,
+      rawPrompt,
+      enhancedPrompt,
+    })
     const creativeModeId = resolveGenerationCreativeModeId({
       topic,
       inputCreativeModeId: input.creativeModeId,
@@ -437,6 +450,7 @@ export function createFramebookService({
     const now = new Date().toISOString()
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
+      researchContext,
       aspectRatio,
       creativeMode: getCreativeMode(creativeModeId) ?? null,
     })
@@ -535,6 +549,7 @@ export function createFramebookService({
       return await promise
     } finally {
       jobRunners.delete(jobId)
+      drainGenerationQueue()
     }
   }
 
@@ -606,7 +621,48 @@ export function createFramebookService({
   }
 
   function startGenerationJob(jobId) {
-    if (!autoRunJobs || jobRunners.has(jobId)) {
+    if (!autoRunJobs || closed || jobRunners.has(jobId)) {
+      return
+    }
+
+    drainGenerationQueue(jobId)
+  }
+
+  function drainGenerationQueue() {
+    if (!autoRunJobs || closed) {
+      return
+    }
+
+    if (generationQueueDraining) {
+      generationQueueDrainRequested = true
+      return
+    }
+
+    generationQueueDraining = true
+    generationQueueDrainRequested = false
+    void Promise.resolve()
+      .then(async () => {
+        while (!closed && jobRunners.size < maxParallelImageGenerations) {
+          const jobId = await nextRunnableGenerationJobId()
+
+          if (!jobId) {
+            return
+          }
+
+          startGenerationJobRunner(jobId)
+        }
+      })
+      .finally(() => {
+        generationQueueDraining = false
+
+        if (generationQueueDrainRequested) {
+          drainGenerationQueue()
+        }
+      })
+  }
+
+  function startGenerationJobRunner(jobId) {
+    if (jobRunners.has(jobId)) {
       return
     }
 
@@ -616,6 +672,14 @@ export function createFramebookService({
         error
       )
     })
+  }
+
+  async function nextRunnableGenerationJobId() {
+    const jobs = await store.listJobs()
+    return jobs
+      .map(normalizeGenerationJob)
+      .filter((job) => isActiveGenerationJob(job) && !jobRunners.has(job.id))
+      .sort(compareRunnableGenerationJobs)[0]?.id
   }
 
   async function listImagesWithOptimization(shouldOptimize) {
@@ -886,6 +950,32 @@ export function createFramebookService({
       : enhancePrompt({ rawPrompt })
   }
 
+  async function resolveResearchContext({
+    mode,
+    topic,
+    rawPrompt,
+    enhancedPrompt,
+  }) {
+    if (mode === "none") {
+      return ""
+    }
+
+    if (typeof codexClient.researchContext !== "function") {
+      throw new Error(
+        "Research context is not available from the configured Codex client"
+      )
+    }
+
+    return requireText(
+      await codexClient.researchContext({
+        topic,
+        rawPrompt,
+        enhancedPrompt,
+      }),
+      "Research context is required"
+    )
+  }
+
   function resolveInitialImageTitle({ rawPrompt, inputTitle }) {
     return (
       normalizeImageTitle(inputTitle) ||
@@ -978,6 +1068,7 @@ export function createFramebookService({
     getGenerationJob,
     runGenerationJob,
     async close() {
+      closed = true
       if (typeof codexClient.close === "function") {
         await codexClient.close()
       } else if (typeof codexClient.dispose === "function") {
@@ -987,6 +1078,14 @@ export function createFramebookService({
       store.close?.()
     },
   }
+}
+
+export function readMaxParallelImageGenerations(env = process.env) {
+  const value = Number(env.FRAMEBOOK_MAX_PARALLEL_IMAGE_GENERATIONS)
+
+  return Number.isInteger(value) && value > 0
+    ? value
+    : defaultMaxParallelImageGenerations
 }
 
 function prewarmPromptEnhancer(codexClient) {
@@ -1230,6 +1329,17 @@ function isActiveGenerationJob(job) {
   return job.status === "queued" || job.status === "running"
 }
 
+function compareRunnableGenerationJobs(left, right) {
+  const leftStatusPriority = left.status === "running" ? 0 : 1
+  const rightStatusPriority = right.status === "running" ? 0 : 1
+
+  if (leftStatusPriority !== rightStatusPriority) {
+    return leftStatusPriority - rightStatusPriority
+  }
+
+  return left.createdAt.localeCompare(right.createdAt)
+}
+
 function normalizeGenerationJob(job) {
   return {
     ...job,
@@ -1355,8 +1465,36 @@ function requireGenerationVersionCount(value) {
   return count
 }
 
-function buildFinalPrompt({ enhancedPrompt, aspectRatio, creativeMode }) {
+function requireResearchContextMode(value) {
+  const mode = optionalText(value) || "none"
+
+  if (mode === "none" || mode === "web") {
+    return mode
+  }
+
+  throw badRequest("Research context mode must be none or web")
+}
+
+function buildFinalPrompt({
+  enhancedPrompt,
+  researchContext,
+  aspectRatio,
+  creativeMode,
+}) {
   const lines = [enhancedPrompt, ""]
+
+  if (researchContext) {
+    lines.push("Research context:")
+    lines.push(researchContext)
+    lines.push("")
+    lines.push(
+      "Research context rules:",
+      "- Use this only as factual grounding for named real-world subjects.",
+      "- Do not treat it as image composition, framing, lighting, camera, mood, style, or color direction.",
+      "- If the user prompt conflicts with this context, prefer the user's prompt."
+    )
+    lines.push("")
+  }
 
   if (creativeMode?.basePromptDetails) {
     lines.push(`Creative mode (${creativeMode.name}):`)

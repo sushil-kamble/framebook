@@ -232,6 +232,29 @@ describe("framebook api client", () => {
     )
   })
 
+  it("can send the research context mode when creating a generation", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" }, jobs: [] }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.createGeneration("topic-1", {
+      rawPrompt: "A lesser-known trek poster",
+      contextMode: "web",
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1/generations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          rawPrompt: "A lesser-known trek poster",
+          contextMode: "web",
+        }),
+      })
+    )
+  })
+
   it("can send an explicit empty creative mode when updating a topic", async () => {
     const fetcher = vi.fn(() =>
       Promise.resolve(Response.json({ topic: { id: "topic-1" } }))
@@ -271,6 +294,7 @@ describe("framebook api client", () => {
         enhancedPrompt: "Change only the t-shirt color.",
         aspectRatio: "4:3",
         creativeModeId: "headshot",
+        contextMode: "web",
       },
       [referenceImage]
     )
@@ -289,6 +313,7 @@ describe("framebook api client", () => {
       "Change the t-shirt color"
     )
     expect((init.body as FormData).get("creativeModeId")).toBe("headshot")
+    expect((init.body as FormData).get("contextMode")).toBe("web")
     const uploadedReference = (init.body as FormData).get(
       "referenceImages"
     ) as File

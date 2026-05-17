@@ -103,6 +103,7 @@ export function FramebookApp({
   const [userPrompt, setUserPrompt] = useState("")
   const [generationPrompt, setGenerationPrompt] = useState("")
   const [promptMode, setPromptMode] = useState<"user" | "generation">("user")
+  const [researchContextEnabled, setResearchContextEnabled] = useState(false)
   const [referenceImages, setReferenceImages] = useState<
     Array<ReferenceImageAttachment>
   >([])
@@ -128,6 +129,8 @@ export function FramebookApp({
   >([])
   const [jobs, setJobs] = useState<Array<GenerationJob>>([])
   const jobsRef = useRef(jobs)
+  const refreshedGenerationJobIdsRef = useRef(new Set<string>())
+  const notifiedGenerationJobIdsRef = useRef(new Set<string>())
   const [error, setError] = useState<string | null>(null)
   const [previewImageId, setPreviewImageId] = useState<string | null>(null)
   const [detailImage, setDetailImage] = useState<ImageRecord | null>(null)
@@ -215,13 +218,13 @@ export function FramebookApp({
         : [],
     [activeTopic, jobs]
   )
-  const pendingActiveTopicGeneration = useMemo(
+  const pendingActiveTopicGenerationVersionCount = useMemo(
     () =>
       activeTopic
-        ? pendingGenerationRequests.find(
-            (request) => request.topicId === activeTopic.id
-          )
-        : undefined,
+        ? pendingGenerationRequests
+            .filter((request) => request.topicId === activeTopic.id)
+            .reduce((count, request) => count + request.versionCount, 0)
+        : 0,
     [activeTopic, pendingGenerationRequests]
   )
   const isStarredImagesLoading =
@@ -481,18 +484,32 @@ export function FramebookApp({
         const finishedJobs = polledJobs.filter(
           (generationJob) => !isActiveGenerationJob(generationJob)
         )
+        const newlyFinishedJobs = finishedJobs.filter(
+          (generationJob) =>
+            !refreshedGenerationJobIdsRef.current.has(generationJob.id)
+        )
 
-        if (finishedJobs.length > 0) {
-          await refreshFinishedGenerationResults(finishedJobs)
+        if (newlyFinishedJobs.length > 0) {
+          for (const generationJob of newlyFinishedJobs) {
+            refreshedGenerationJobIdsRef.current.add(generationJob.id)
+          }
+          await refreshFinishedGenerationResults(newlyFinishedJobs)
         }
 
         const activeJobsAfterPoll = nextJobs.filter(isActiveGenerationJob)
         if (activeJobsAfterPoll.length === 0) {
-          await finishGenerationJobs(
-            nextJobs.filter(
-              (generationJob) => !isActiveGenerationJob(generationJob)
-            )
+          const finishedJobsToNotify = nextJobs.filter(
+            (generationJob) =>
+              !isActiveGenerationJob(generationJob) &&
+              !notifiedGenerationJobIdsRef.current.has(generationJob.id)
           )
+
+          if (finishedJobsToNotify.length > 0) {
+            for (const generationJob of finishedJobsToNotify) {
+              notifiedGenerationJobIdsRef.current.add(generationJob.id)
+            }
+            await finishGenerationJobs(finishedJobsToNotify)
+          }
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -857,6 +874,7 @@ export function FramebookApp({
           aspectRatio: selectedAspectRatio,
           versionCount: selectedVersionCount,
           creativeModeId: selectedCreativeModeId,
+          contextMode: researchContextEnabled ? "web" : "none",
         },
         submittedReferenceFiles
       )
@@ -1059,13 +1077,16 @@ export function FramebookApp({
                 selectedAspectRatio={selectedAspectRatio}
                 selectedCreativeModeId={selectedCreativeModeId}
                 selectedVersionCount={selectedVersionCount}
+                researchContextEnabled={researchContextEnabled}
                 creatingGenerationVersionCount={
-                  pendingActiveTopicGeneration?.versionCount
+                  pendingActiveTopicGenerationVersionCount
                 }
                 favoriteOnly={favoriteOnly}
                 jobs={activeTopicGenerationJobs}
                 isEnhancing={isEnhancing}
-                isCreatingGeneration={Boolean(pendingActiveTopicGeneration)}
+                isCreatingGeneration={
+                  pendingActiveTopicGenerationVersionCount > 0
+                }
                 isLoadingImages={isLoadingImages}
                 onBack={() => navigateTo("topics")}
                 onEditTopic={() => startEditTopic(activeTopic)}
@@ -1077,6 +1098,7 @@ export function FramebookApp({
                 onAspectRatioChange={setSelectedAspectRatio}
                 onCreativeModeChange={setSelectedCreativeModeId}
                 onVersionCountChange={setSelectedVersionCount}
+                onResearchContextChange={setResearchContextEnabled}
                 onArchiveImage={archiveImage}
                 onEnhancePrompt={enhanceCurrentPrompt}
                 onGenerate={generateCurrentPrompt}

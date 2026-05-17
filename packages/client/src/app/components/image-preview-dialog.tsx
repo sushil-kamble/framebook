@@ -16,6 +16,7 @@ import {
   imageFileUrl,
   imageResolutionLabel,
 } from "../lib/utils"
+import { refreshHoverPreviewShortcutAfterDialogClose } from "../lib/preview-shortcut"
 import { ConfirmationDialog } from "./confirmation-dialog"
 import type { ReactNode } from "react"
 import type { ImageRecord } from "@framebook/shared/contracts/framebook"
@@ -60,6 +61,7 @@ export function ImagePreviewDialog(props: {
       if (event.key.toLowerCase() === "v") {
         event.preventDefault()
         onClose()
+        refreshHoverPreviewShortcutAfterDialogClose()
         return
       }
 

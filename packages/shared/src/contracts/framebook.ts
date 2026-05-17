@@ -150,6 +150,8 @@ export interface EnhancePromptResponse {
   aspectRatio: AspectRatio
 }
 
+export type ResearchContextMode = "none" | "web"
+
 export interface CreateGenerationRequest {
   rawPrompt: string
   enhancedPrompt?: string
@@ -157,6 +159,7 @@ export interface CreateGenerationRequest {
   aspectRatio?: AspectRatio
   versionCount?: GenerationVersionCount
   creativeModeId?: string
+  contextMode?: ResearchContextMode
 }
 
 export interface CreateGenerationResponse {

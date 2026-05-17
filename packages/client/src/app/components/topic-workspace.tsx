@@ -6,6 +6,7 @@ import {
   ImageUp,
   Loader2,
   Pencil,
+  Search,
   Send,
   Sparkles,
   Star,
@@ -36,6 +37,7 @@ import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import { ConfirmationDialog } from "./confirmation-dialog"
 import type { DropzoneState } from "react-dropzone"
+import type { ReactNode } from "react"
 import type {
   AspectRatio,
   GenerationJob,
@@ -54,6 +56,12 @@ import {
 } from "@/shared/ui/select"
 import { Skeleton } from "@/shared/ui/skeleton"
 import { Textarea } from "@/shared/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip"
 
 interface ReferenceImageAttachment {
   id: string
@@ -71,7 +79,8 @@ export function TopicWorkspace(props: {
   selectedAspectRatio: AspectRatio
   selectedCreativeModeId: string
   selectedVersionCount?: GenerationVersionCount
-  creatingGenerationVersionCount?: GenerationVersionCount
+  creatingGenerationVersionCount?: number
+  researchContextEnabled?: boolean
   favoriteOnly: boolean
   job?: GenerationJob | null
   jobs?: Array<GenerationJob>
@@ -88,6 +97,7 @@ export function TopicWorkspace(props: {
   onAspectRatioChange: (value: AspectRatio) => void
   onCreativeModeChange: (value: string) => void
   onVersionCountChange?: (value: GenerationVersionCount) => void
+  onResearchContextChange?: (value: boolean) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
   onToggleFavorite: (image: ImageRecord) => void
@@ -102,15 +112,16 @@ export function TopicWorkspace(props: {
   const activeJobCount = activeGenerationJobCount(
     props.jobs ?? (props.job ? [props.job] : [])
   )
-  const isGenerating = props.isCreatingGeneration || activeJobCount > 0
-  const generatingPlaceholderCount = props.isCreatingGeneration
+  const pendingPlaceholderCount = props.isCreatingGeneration
     ? (props.creatingGenerationVersionCount ?? props.selectedVersionCount ?? 1)
-    : activeJobCount
+    : 0
+  const generatingPlaceholderCount = activeJobCount + pendingPlaceholderCount
+  const isGenerating = generatingPlaceholderCount > 0
   const availableReferenceSlots =
     referenceImageConfig.maxFiles - props.referenceImages.length
   const referenceImageDropzone = useDropzone({
     accept: referenceImageDropzoneAccept,
-    disabled: isGenerating || availableReferenceSlots <= 0,
+    disabled: availableReferenceSlots <= 0,
     maxFiles: Math.max(1, availableReferenceSlots),
     maxSize: referenceImageConfig.maxBytes,
     multiple: true,
@@ -193,14 +204,16 @@ export function TopicWorkspace(props: {
             selectedAspectRatio={props.selectedAspectRatio}
             selectedCreativeModeId={props.selectedCreativeModeId}
             selectedVersionCount={props.selectedVersionCount ?? 1}
+            researchContextEnabled={props.researchContextEnabled ?? false}
             isEnhancing={props.isEnhancing}
-            isGenerating={isGenerating}
+            isSubmittingGeneration={props.isCreatingGeneration}
             canGenerate={canGenerate}
             onPromptChange={props.onPromptChange}
             onRemoveReferenceImage={props.onRemoveReferenceImage}
             onAspectRatioChange={props.onAspectRatioChange}
             onCreativeModeChange={props.onCreativeModeChange}
             onVersionCountChange={props.onVersionCountChange}
+            onResearchContextChange={props.onResearchContextChange}
             onEnhancePrompt={props.onEnhancePrompt}
             onGenerate={props.onGenerate}
             referenceImageDropzone={referenceImageDropzone}
@@ -264,8 +277,9 @@ function PromptComposer(props: {
   selectedAspectRatio: AspectRatio
   selectedCreativeModeId: string
   selectedVersionCount: GenerationVersionCount
+  researchContextEnabled: boolean
   isEnhancing: boolean
-  isGenerating: boolean
+  isSubmittingGeneration: boolean
   canGenerate: boolean
   referenceImageDropzone: DropzoneState
   onPromptChange: (value: string) => void
@@ -273,6 +287,7 @@ function PromptComposer(props: {
   onAspectRatioChange: (value: AspectRatio) => void
   onCreativeModeChange: (value: string) => void
   onVersionCountChange?: (value: GenerationVersionCount) => void
+  onResearchContextChange?: (value: boolean) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
 }) {
@@ -301,7 +316,7 @@ function PromptComposer(props: {
             onChange={(event) => props.onPromptChange(event.target.value)}
             rows={3}
             className={cn(
-              "min-h-18 resize-none border-border/50 bg-background/60 pr-36 pb-13 text-sm",
+              "min-h-18 resize-none border-border/50 bg-background/60 pr-48 pb-13 text-sm",
               props.referenceImages.length > 0 ? "min-h-36 pb-24" : ""
             )}
             placeholder="Describe the image you want to create..."
@@ -312,35 +327,64 @@ function PromptComposer(props: {
               onRemoveReferenceImage={props.onRemoveReferenceImage}
             />
           ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label="Enhance prompt"
-            disabled={
-              !props.canGenerate || props.isEnhancing || props.isGenerating
-            }
-            onClick={props.onEnhancePrompt}
-            className="absolute right-14 bottom-3"
-          >
-            {props.isEnhancing ? (
-              <Loader2 data-icon="inline-start" className="animate-spin" />
-            ) : (
-              <Sparkles data-icon="inline-start" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label="Attach reference images"
-            title="Attach reference images"
-            disabled={props.isGenerating || availableReferenceSlots <= 0}
-            onClick={props.referenceImageDropzone.open}
-            className="absolute right-3 bottom-3"
-          >
-            <ImagePlus data-icon="inline-start" />
-          </Button>
+          <TooltipProvider>
+            <TooltipIconButton
+              tooltip="Research context"
+              className="absolute right-25 bottom-3"
+            >
+              <Button
+                type="button"
+                variant={props.researchContextEnabled ? "default" : "outline"}
+                size="sm"
+                aria-label="Research context"
+                aria-pressed={props.researchContextEnabled}
+                onClick={() =>
+                  props.onResearchContextChange?.(!props.researchContextEnabled)
+                }
+                className={cn(
+                  props.researchContextEnabled
+                    ? "border-primary bg-primary text-primary-foreground shadow-md hover:bg-primary/88 hover:text-primary-foreground"
+                    : ""
+                )}
+              >
+                <Search data-icon="inline-start" />
+              </Button>
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="AI enhance"
+              className="absolute right-14 bottom-3"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Enhance prompt"
+                disabled={!props.canGenerate || props.isEnhancing}
+                onClick={props.onEnhancePrompt}
+              >
+                {props.isEnhancing ? (
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <Sparkles data-icon="inline-start" />
+                )}
+              </Button>
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="Attach reference image"
+              className="absolute right-3 bottom-3"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Attach reference images"
+                disabled={availableReferenceSlots <= 0}
+                onClick={props.referenceImageDropzone.open}
+              >
+                <ImagePlus data-icon="inline-start" />
+              </Button>
+            </TooltipIconButton>
+          </TooltipProvider>
         </div>
         {showOriginalPrompt ? (
           <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs">
@@ -444,11 +488,11 @@ function PromptComposer(props: {
           <Button
             type="button"
             size="sm"
-            disabled={!props.canGenerate || props.isGenerating}
+            disabled={!props.canGenerate || props.isSubmittingGeneration}
             onClick={props.onGenerate}
             className="min-w-24"
           >
-            {props.isGenerating ? (
+            {props.isSubmittingGeneration ? (
               <Loader2 data-icon="inline-start" className="animate-spin" />
             ) : (
               <Send data-icon="inline-start" />
@@ -487,6 +531,25 @@ function ReferenceImageDropOverlay(props: { isRejecting: boolean }) {
         </p>
       </div>
     </div>
+  )
+}
+
+function TooltipIconButton(props: {
+  tooltip: string
+  className: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("inline-flex", props.className)}>
+          {props.children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent align="end">
+        <p>{props.tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

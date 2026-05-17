@@ -198,6 +198,7 @@ function generationFormData(
   appendFormField(formData, "creativeModeId", input.creativeModeId, {
     includeEmpty: true,
   })
+  appendFormField(formData, "contextMode", input.contextMode)
   appendFormField(
     formData,
     "versionCount",

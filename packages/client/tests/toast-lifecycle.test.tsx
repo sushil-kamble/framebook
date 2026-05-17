@@ -108,6 +108,73 @@ describe("toast lifecycle", () => {
     )
   })
 
+  it("does not include already-notified jobs in later generation success toasts", async () => {
+    mocks.framebookApi.createGeneration
+      .mockResolvedValueOnce({ job: queuedGenerationJob })
+      .mockResolvedValueOnce({
+        job: secondQueuedGenerationJob,
+        jobs: [secondQueuedGenerationJob, thirdQueuedGenerationJob],
+      })
+    mocks.framebookApi.getGenerationJob.mockImplementation((jobId: string) =>
+      Promise.resolve({
+        job:
+          jobId === secondQueuedGenerationJob.id
+            ? secondSucceededGenerationJob
+            : jobId === thirdQueuedGenerationJob.id
+              ? thirdSucceededGenerationJob
+              : succeededGenerationJob,
+      })
+    )
+    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
+
+    fireEvent.change(
+      await screen.findByPlaceholderText(
+        "Describe the image you want to create..."
+      ),
+      { target: { value: "A mountain railway poster" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(mocks.toast.success).toHaveBeenCalledWith("Image generated")
+    })
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Describe the image you want to create..."),
+      { target: { value: "Two more poster versions" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(mocks.toast.success).toHaveBeenCalledWith("2 images generated")
+    })
+    expect(mocks.toast.success).not.toHaveBeenCalledWith("3 images generated")
+  })
+
+  it("sends web context mode when research context is enabled", async () => {
+    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
+
+    fireEvent.change(
+      await screen.findByPlaceholderText(
+        "Describe the image you want to create..."
+      ),
+      { target: { value: "A lesser-known trek poster" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Research context" }))
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(mocks.framebookApi.createGeneration).toHaveBeenCalledWith(
+        topicSummary.id,
+        expect.objectContaining({
+          rawPrompt: "A lesser-known trek poster",
+          contextMode: "web",
+        }),
+        []
+      )
+    })
+  })
+
   it("shows generation loading UI before the create generation request resolves", async () => {
     let resolveGeneration: (value: { job: GenerationJob }) => void = () => {}
     mocks.framebookApi.createGeneration.mockReturnValue(
@@ -300,4 +367,30 @@ const succeededGenerationJob: GenerationJob = {
   ...queuedGenerationJob,
   status: "succeeded",
   imageId: "image-1",
+}
+
+const secondQueuedGenerationJob: GenerationJob = {
+  ...queuedGenerationJob,
+  id: "job-2",
+  title: "Second Poster",
+  rawPrompt: "Two more poster versions",
+  finalPrompt: "Two more poster versions",
+}
+
+const thirdQueuedGenerationJob: GenerationJob = {
+  ...secondQueuedGenerationJob,
+  id: "job-3",
+  title: "Third Poster",
+}
+
+const secondSucceededGenerationJob: GenerationJob = {
+  ...secondQueuedGenerationJob,
+  status: "succeeded",
+  imageId: "image-2",
+}
+
+const thirdSucceededGenerationJob: GenerationJob = {
+  ...thirdQueuedGenerationJob,
+  status: "succeeded",
+  imageId: "image-3",
 }

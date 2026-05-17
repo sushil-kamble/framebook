@@ -324,7 +324,8 @@ async function readGenerationMultipartBody(request) {
         name === "title" ||
         name === "aspectRatio" ||
         name === "versionCount" ||
-        name === "creativeModeId"
+        name === "creativeModeId" ||
+        name === "contextMode"
       ) {
         fields[name] = value
       }

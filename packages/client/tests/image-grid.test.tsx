@@ -6,6 +6,7 @@ import { ImagePreviewDialog } from "../src/app/components/image-preview-dialog"
 import { StarredScreen } from "../src/app/components/starred-screen"
 import { TopicWorkspace } from "../src/app/components/topic-workspace"
 import type {
+  GenerationJob,
   ImageRecord,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
@@ -157,6 +158,88 @@ describe("optimized image grids", () => {
     expect(onRemoveReferenceImage).toHaveBeenCalledWith("reference-1")
   })
 
+  it("keeps generation controls usable while background jobs are active", () => {
+    const onGenerate = vi.fn()
+
+    render(
+      <TopicWorkspace
+        topic={topicSummary}
+        images={[]}
+        promptValue="A second poster prompt"
+        referenceImages={[]}
+        selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
+        favoriteOnly={false}
+        jobs={[runningGenerationJob]}
+        isEnhancing={false}
+        isCreatingGeneration={false}
+        isLoadingImages={false}
+        onBack={vi.fn()}
+        onEditTopic={vi.fn()}
+        onArchiveTopic={vi.fn()}
+        onPromptChange={vi.fn()}
+        onAddReferenceImages={vi.fn()}
+        onRemoveReferenceImage={vi.fn()}
+        onReferenceImageError={vi.fn()}
+        onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onGenerate={onGenerate}
+        onToggleFavorite={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onFavoriteFilterChange={vi.fn()}
+      />
+    )
+
+    const generateButton = screen.getByRole("button", { name: "Generate" })
+    expect(generateButton.hasAttribute("disabled")).toBe(false)
+
+    fireEvent.click(generateButton)
+
+    expect(onGenerate).toHaveBeenCalledOnce()
+  })
+
+  it("adds active and pending generation placeholders together", () => {
+    render(
+      <TopicWorkspace
+        topic={topicSummary}
+        images={[]}
+        promptValue="A poster prompt"
+        referenceImages={[]}
+        selectedAspectRatio="4:3"
+        selectedCreativeModeId="blue-pin-poster"
+        favoriteOnly={false}
+        jobs={[runningGenerationJob]}
+        isEnhancing={false}
+        isCreatingGeneration={true}
+        creatingGenerationVersionCount={4}
+        isLoadingImages={false}
+        onBack={vi.fn()}
+        onEditTopic={vi.fn()}
+        onArchiveTopic={vi.fn()}
+        onPromptChange={vi.fn()}
+        onAddReferenceImages={vi.fn()}
+        onRemoveReferenceImage={vi.fn()}
+        onReferenceImageError={vi.fn()}
+        onAspectRatioChange={vi.fn()}
+        onCreativeModeChange={vi.fn()}
+        onEnhancePrompt={vi.fn()}
+        onGenerate={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        onRevealImage={vi.fn()}
+        onPreviewImage={vi.fn()}
+        onViewImageDetails={vi.fn()}
+        onDownloadImage={vi.fn()}
+        onFavoriteFilterChange={vi.fn()}
+      />
+    )
+
+    expect(screen.getAllByLabelText("Generating image")).toHaveLength(5)
+  })
+
   it("allows clearing an optional creative mode without a dropdown option", () => {
     const onCreativeModeChange = vi.fn()
 
@@ -284,6 +367,70 @@ describe("optimized image grids", () => {
         document.querySelector("[data-framebook-preview-dialog='true']")
       ).toBeTruthy()
     })
+  })
+
+  it("opens the image under the pointer after preview is closed with v", async () => {
+    const originalElementFromPoint = Object.getOwnPropertyDescriptor(
+      document,
+      "elementFromPoint"
+    )
+    const elementFromPoint = vi.fn()
+
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: elementFromPoint,
+    })
+
+    try {
+      render(<PreviewToggleHarness images={[imageRecord, secondImageRecord]} />)
+
+      const firstImage = screen.getByRole("img", { name: imageRecord.title })
+      const secondImage = screen.getByRole("img", {
+        name: secondImageRecord.title,
+      })
+      const firstCard = firstImage.closest("article")!
+      const secondCard = secondImage.closest("article")!
+
+      fireEvent.mouseEnter(firstCard, { clientX: 10, clientY: 10 })
+      fireEvent.keyDown(window, { key: "v" })
+
+      await waitFor(() => {
+        expect(
+          document.querySelector("[data-framebook-preview-dialog='true']")
+        ).toBeTruthy()
+      })
+
+      elementFromPoint.mockReturnValue(secondCard)
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 10 })
+      fireEvent.keyDown(window, { key: "v" })
+
+      await waitFor(() => {
+        expect(
+          document.querySelector("[data-framebook-preview-dialog='true']")
+        ).toBeNull()
+      })
+      await waitFor(() => expect(elementFromPoint).toHaveBeenCalled())
+
+      fireEvent.keyDown(window, { key: "v" })
+
+      await waitFor(() => {
+        expect(
+          document
+            .querySelector("[data-framebook-preview-dialog='true'] img")
+            ?.getAttribute("src")
+        ).toContain("/api/images/image-2/file")
+      })
+    } finally {
+      if (originalElementFromPoint) {
+        Object.defineProperty(
+          document,
+          "elementFromPoint",
+          originalElementFromPoint
+        )
+      } else {
+        Reflect.deleteProperty(document, "elementFromPoint")
+      }
+    }
   })
 
   it("keeps detail and preview views on the original image URL", async () => {
@@ -492,7 +639,7 @@ describe("optimized image grids", () => {
   })
 })
 
-function PreviewToggleHarness() {
+function PreviewToggleHarness(props: { images?: Array<ImageRecord> }) {
   const [previewImage, setPreviewImage] = useState<ImageRecord | null>(null)
 
   const togglePreviewImage = (image: ImageRecord) => {
@@ -503,7 +650,7 @@ function PreviewToggleHarness() {
     <>
       <TopicWorkspace
         topic={topicSummary}
-        images={[imageRecord]}
+        images={props.images ?? [imageRecord]}
         promptValue=""
         referenceImages={[]}
         selectedAspectRatio="4:3"
@@ -559,6 +706,23 @@ const topicSummary: TopicSummary = {
   favoriteCount: 1,
   latestImageId: "image-1",
   latestImageCreatedAt: "2026-05-04T10:00:00.000Z",
+}
+
+const runningGenerationJob: GenerationJob = {
+  id: "job-running",
+  topicId: "topic-1",
+  status: "running",
+  title: "Running Poster",
+  rawPrompt: "A running poster prompt",
+  enhancedPrompt: "A running poster prompt",
+  finalPrompt: "A running poster prompt",
+  aspectRatio: "4:3",
+  creativeModeId: "blue-pin-poster",
+  referenceImages: [],
+  imageId: null,
+  error: null,
+  createdAt: "2026-05-04T10:00:00.000Z",
+  updatedAt: "2026-05-04T10:00:00.000Z",
 }
 
 const imageRecord: ImageRecord = {
@@ -630,6 +794,18 @@ Enhanced mountain railway.`,
     },
   ],
   createdAt: "2026-05-04T10:00:00.000Z",
+}
+
+const secondImageRecord: ImageRecord = {
+  ...imageRecord,
+  id: "image-2",
+  title: "Coastal Tram Poster",
+  fileName: "image-2.png",
+  createdAt: "2026-05-04T10:05:00.000Z",
+  variants: (imageRecord.variants ?? []).map((variant) => ({
+    ...variant,
+    fileName: variant.fileName.replace("image-1", "image-2"),
+  })),
 }
 
 function referenceImageDataTransfer(file: File) {
