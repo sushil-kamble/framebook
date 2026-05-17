@@ -11,6 +11,7 @@ import type {
   ImageResponse,
   RevealImageResponse,
   TopicListResponse,
+  TopicReferenceImagesResponse,
   TopicResponse,
   UpdateImageRequest,
   UpdateTopicRequest,
@@ -23,7 +24,7 @@ interface FramebookApiOptions {
   fetcher?: Fetcher
 }
 
-export class ApiError extends Error {
+class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number
@@ -81,6 +82,26 @@ export function createFramebookApi(
         {
           method: "PATCH",
           body: JSON.stringify(input),
+        }
+      )
+    },
+    async addTopicReferenceImages(
+      topicId: string,
+      referenceImages: Array<File>
+    ) {
+      return request<TopicReferenceImagesResponse>(
+        `/api/topics/${encodeURIComponent(topicId)}/reference-images`,
+        {
+          method: "POST",
+          body: referenceImagesFormData(referenceImages),
+        }
+      )
+    },
+    async deleteTopicReferenceImage(topicId: string, referenceImageId: string) {
+      return request<TopicReferenceImagesResponse>(
+        `/api/topics/${encodeURIComponent(topicId)}/reference-images/${encodeURIComponent(referenceImageId)}`,
+        {
+          method: "DELETE",
         }
       )
     },
@@ -186,24 +207,8 @@ export function createFramebookApi(
   }
 }
 
-function generationFormData(
-  input: CreateGenerationRequest,
-  referenceImages: Array<File>
-) {
+function referenceImagesFormData(referenceImages: Array<File>) {
   const formData = new FormData()
-  appendFormField(formData, "rawPrompt", input.rawPrompt)
-  appendFormField(formData, "enhancedPrompt", input.enhancedPrompt)
-  appendFormField(formData, "title", input.title)
-  appendFormField(formData, "aspectRatio", input.aspectRatio)
-  appendFormField(formData, "creativeModeId", input.creativeModeId, {
-    includeEmpty: true,
-  })
-  appendFormField(formData, "contextMode", input.contextMode)
-  appendFormField(
-    formData,
-    "versionCount",
-    input.versionCount === undefined ? undefined : String(input.versionCount)
-  )
 
   for (const file of referenceImages) {
     formData.append("referenceImages", file, file.name)
@@ -212,15 +217,18 @@ function generationFormData(
   return formData
 }
 
-function appendFormField(
-  formData: FormData,
-  name: string,
-  value: string | undefined,
-  options: { includeEmpty?: boolean } = {}
+function generationFormData(
+  input: CreateGenerationRequest,
+  referenceImages: Array<File>
 ) {
-  if (value !== undefined && (options.includeEmpty || value !== "")) {
-    formData.append(name, value)
+  const formData = new FormData()
+  formData.append("payload", JSON.stringify(input))
+
+  for (const file of referenceImages) {
+    formData.append("referenceImages", file, file.name)
   }
+
+  return formData
 }
 
 function isFormDataBody(body: BodyInit | null | undefined) {

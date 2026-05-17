@@ -1,6 +1,14 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { setTimeout as sleep } from "node:timers/promises"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -46,12 +54,8 @@ describe("framebook service", () => {
   it("creates, lists, updates, archives, and unarchives topics", async () => {
     const topic = await service.createTopic({
       name: "Travel Poster Study",
-      description: "Swiss Alps poster experiments",
-      instruction:
-        "Use cinematic travel poster style with bold typography space.",
       defaultAspectRatio: "16:9",
-      basePromptDetails: "Snowy peaks, rail viaduct, crisp morning light",
-      creativeModeId: "blue-pin-poster",
+      basePrompt: "Snowy peaks, rail viaduct, crisp morning light",
     })
 
     expect(topic.name).toBe("Travel Poster Study")
@@ -87,11 +91,9 @@ describe("framebook service", () => {
 
     expect(topic).toMatchObject({
       name: "Only Name",
-      description: "",
-      instruction: "",
       defaultAspectRatio: "16:9",
-      basePromptDetails: "",
-      creativeModeId: "",
+      basePrompt: "",
+      referenceImages: [],
     })
   })
 
@@ -119,6 +121,69 @@ describe("framebook service", () => {
     })
   })
 
+  it("exports legacy generated originals and resets v1 metadata", async () => {
+    const legacyRoot = await mkdtemp(path.join(os.tmpdir(), "framebook-v1-"))
+    const legacyDataDir = path.join(legacyRoot, "data")
+    const legacyExportDir = path.join(legacyRoot, "exports")
+    const legacyTopicId = "legacy-topic"
+    const legacyImageId = "legacy-image"
+    const legacyFileName = "legacy-image.png"
+    const legacyImagePath = path.join(
+      legacyDataDir,
+      "images",
+      legacyTopicId,
+      legacyFileName
+    )
+
+    try {
+      await writePng(legacyImagePath, { width: 4, height: 4 })
+      await seedLegacyDatabase({
+        dbPath: path.join(legacyDataDir, "framebook.db"),
+        topic: {
+          id: legacyTopicId,
+          name: "Legacy Topic",
+          updatedAt: "2026-05-01T10:00:00.000Z",
+        },
+        image: {
+          id: legacyImageId,
+          topicId: legacyTopicId,
+          title: "Legacy Image",
+          fileName: legacyFileName,
+          createdAt: "2026-05-01T10:05:00.000Z",
+          topicSnapshot: { name: "Legacy Topic" },
+        },
+      })
+
+      const legacyStore = createFramebookStore({
+        dataDir: legacyDataDir,
+        legacyExportDir,
+      })
+
+      await expect(legacyStore.listTopics()).resolves.toEqual([])
+      await expect(legacyStore.listImages()).resolves.toEqual([])
+      await expect(access(legacyImagePath)).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+
+      const exportRuns = await readdir(legacyExportDir)
+      expect(exportRuns).toHaveLength(1)
+      await expect(
+        access(
+          path.join(
+            legacyExportDir,
+            exportRuns[0],
+            "Legacy_Topic",
+            "Legacy_Image-legacy-image.png"
+          )
+        )
+      ).resolves.toBeUndefined()
+
+      legacyStore.close()
+    } finally {
+      await rm(legacyRoot, { recursive: true, force: true })
+    }
+  })
+
   it("creates and lists image records with a generation-time topic snapshot", async () => {
     const topic = await createTopic(service)
     const image = await service.addImageRecord({
@@ -136,7 +201,7 @@ describe("framebook service", () => {
     expect(images).toEqual([image])
     expect(images[0].topicSnapshot).toMatchObject({
       id: topic.id,
-      instruction: topic.instruction,
+      basePrompt: topic.basePrompt,
     })
     expect(images[0].archivedAt).toBeNull()
 
@@ -228,19 +293,13 @@ describe("framebook service", () => {
     const firstTopic = await createTopic(service)
     const secondTopic = await service.createTopic({
       name: "Market Food",
-      description: "Street food references.",
-      instruction: "Warm editorial food photography.",
       defaultAspectRatio: "1:1",
-      basePromptDetails: "",
-      creativeModeId: "newspaper",
+      basePrompt: "Warm editorial food photography.",
     })
     const archivedTopic = await service.createTopic({
       name: "Archived Ideas",
-      description: "",
-      instruction: "Old references.",
       defaultAspectRatio: "16:9",
-      basePromptDetails: "",
-      creativeModeId: "fantasy",
+      basePrompt: "Old references.",
     })
     await service.archiveTopic(archivedTopic.id)
 
@@ -302,8 +361,7 @@ describe("framebook service", () => {
 
     expect(result.enhancedPrompt).toContain("Morning tea stall in misty hills")
     expect(result.enhancedPrompt).toContain("Preserve the user's subject")
-    expect(result.enhancedPrompt).not.toContain(topic.instruction)
-    expect(result.enhancedPrompt).not.toContain(topic.basePromptDetails)
+    expect(result.enhancedPrompt).not.toContain(topic.basePrompt)
     expect(result.enhancedPrompt).not.toContain("storytelling clarity")
     expect(result.enhancedPrompt).not.toMatch(
       /aspect ratio|16:9|resolution|quality/iu
@@ -386,10 +444,8 @@ describe("framebook service", () => {
       rawPrompt: "Triund trek poster",
       enhancedPrompt: "Generate a Triund trek poster.",
     })
-    expect(job.finalPrompt).toContain("Research context:")
-    expect(job.finalPrompt).toContain("Triund is a trek")
-    expect(job.finalPrompt).toContain("Research context rules:")
-    expect(job.finalPrompt).toContain("Aspect ratio: 4:3")
+    expect(job.finalPrompt).toBe("Generate a Triund trek poster.")
+    expect(job.researchContext).toContain("Triund is a trek")
   })
 
   it("does not send raw prompt to the image generator client", async () => {
@@ -435,17 +491,15 @@ describe("framebook service", () => {
     const job = await service.createGeneration(topic.id, {
       rawPrompt: "A red train crossing a stone viaduct in the Swiss Alps",
       aspectRatio: "16:9",
-      creativeModeId: "blue-pin-poster",
     })
 
     expect(job.status).toBe("queued")
     expect(job.title).toBe(
       "A red train crossing a stone viaduct in the Swiss Alps"
     )
-    expect(job.finalPrompt).toContain("Aspect ratio: 16:9")
-    expect(job.creativeModeId).toBe("blue-pin-poster")
-    expect(job.finalPrompt).toContain("Creative mode (Blue Pin Poster)")
-    expect(job.finalPrompt).toContain("Mid-century travel poster")
+    expect(job.finalPrompt).toBe(
+      "A red train crossing a stone viaduct in the Swiss Alps"
+    )
 
     const finishedJob = await service.runGenerationJob(job.id)
     expect(finishedJob.status).toBe("succeeded")
@@ -458,10 +512,6 @@ describe("framebook service", () => {
       title: job.title,
       rawPrompt: "A red train crossing a stone viaduct in the Swiss Alps",
       aspectRatio: "16:9",
-      creativeMode: expect.objectContaining({
-        id: "blue-pin-poster",
-        name: "Blue Pin Poster",
-      }),
       fileName: `${job.id}.png`,
       mimeType: "image/png",
       width: 1,
@@ -469,13 +519,13 @@ describe("framebook service", () => {
       placeholderColor: expect.stringMatching(/^#[0-9a-f]{6}$/u),
     })
     expect(images[0].topicSnapshot).toMatchObject({
-      description: topic.description,
+      basePrompt: topic.basePrompt,
     })
     expect(images[0].imageGenerationPrompt).toContain(
       "Topic: Monsoon Trip Story"
     )
     expect(images[0].imageGenerationPrompt).toContain(
-      `Description: ${topic.description}`
+      `Base prompt: ${topic.basePrompt}`
     )
     expect(images[0].imageGenerationPrompt).toContain(
       "Final image prompt:\nA red train crossing a stone viaduct"
@@ -483,6 +533,18 @@ describe("framebook service", () => {
     expect(images[0].imageGenerationPrompt).toContain(
       path.join(dataDir, "images", topic.id, `${job.id}.png`)
     )
+    expect(
+      extractPromptBlock(
+        images[0].imageGenerationPrompt,
+        "Trusted Framebook generation contract"
+      )
+    ).toContain("Aspect ratio: 16:9")
+    expect(
+      extractPromptBlock(
+        images[0].imageGenerationPrompt,
+        "Untrusted creative input"
+      )
+    ).not.toContain("Aspect ratio")
     expect(images[0].imageGenerationPrompt).not.toContain("Raw prompt:")
     expect(images[0].variants).toHaveLength(4)
     expect(images[0].variants).toEqual(
@@ -501,36 +563,6 @@ describe("framebook service", () => {
     await expect(
       access(path.join(dataDir, "images", topic.id, `${job.id}-480w.webp`))
     ).resolves.toBeUndefined()
-  })
-
-  it("does not apply a creative mode when none is selected", async () => {
-    const topic = await service.createTopic({
-      name: "Plain Prompt",
-      defaultAspectRatio: "16:9",
-    })
-    const job = await service.createGeneration(topic.id, {
-      rawPrompt: "A quiet desk with a notebook and lamp",
-      aspectRatio: "16:9",
-      creativeModeId: "",
-    })
-
-    expect(job.creativeModeId).toBe("")
-    expect(job.finalPrompt).toContain("A quiet desk with a notebook and lamp")
-    expect(job.finalPrompt).not.toContain("Creative mode")
-    expect(job.finalPrompt).not.toContain("Animal Infographic")
-
-    const finishedJob = await service.runGenerationJob(job.id)
-    expect(finishedJob.status).toBe("succeeded")
-
-    const images = await service.listImages(topic.id)
-    expect(images[0]).toMatchObject({
-      creativeMode: {
-        id: "",
-        name: "",
-        basePromptDetails: "",
-        creativeDirection: "",
-      },
-    })
   })
 
   it("backfills optimization metadata for existing image records on list", async () => {
@@ -552,9 +584,9 @@ describe("framebook service", () => {
       topicSnapshot: {
         id: topic.id,
         name: topic.name,
-        instruction: topic.instruction,
         defaultAspectRatio: topic.defaultAspectRatio,
-        basePromptDetails: topic.basePromptDetails,
+        basePrompt: topic.basePrompt,
+        referenceImages: [],
       },
       favorite: true,
       archivedAt: null,
@@ -1055,7 +1087,7 @@ describe("framebook service", () => {
     await expect(service.listImages(topic.id)).resolves.toHaveLength(1)
   })
 
-  it("stores reference images on generation jobs and generated image records", async () => {
+  it("stores topic reference images on generation jobs and generated image records", async () => {
     const referenceDataDir = path.join(dataDir, "reference-images")
     const referenceBuffer = await createPngBuffer({ width: 16, height: 10 })
     const capturedReferenceImages = []
@@ -1071,21 +1103,25 @@ describe("framebook service", () => {
       autoRunJobs: false,
     })
     const topic = await createTopic(referenceService)
-
-    const job = await referenceService.createGeneration(topic.id, {
-      rawPrompt: "Change the shirt color but keep the face the same",
-      aspectRatio: "4:3",
-      referenceImages: [
+    const topicWithReferences = await referenceService.addTopicReferenceImages(
+      topic.id,
+      [
         {
           originalName: "subject.png",
           mimeType: "image/png",
           sizeBytes: referenceBuffer.byteLength,
           buffer: referenceBuffer,
         },
-      ],
+      ]
+    )
+
+    const job = await referenceService.createGeneration(topic.id, {
+      rawPrompt: "Change the shirt color but keep the face the same",
+      aspectRatio: "4:3",
     })
 
     expect(job.referenceImages).toHaveLength(1)
+    expect(job.referenceImages).toEqual(topicWithReferences.referenceImages)
     expect(job.referenceImages[0]).toMatchObject({
       originalName: "subject.png",
       mimeType: "image/png",
@@ -1094,7 +1130,7 @@ describe("framebook service", () => {
       height: 10,
     })
     expect(job.referenceImages[0].fileName).toMatch(
-      /^references\/.+\/.+\.png$/u
+      /^references\/topic\/.+\.png$/u
     )
     expect(job.referenceImages[0]).not.toHaveProperty("filePath")
     await expect(
@@ -1112,7 +1148,7 @@ describe("framebook service", () => {
     const images = await referenceService.listImages(topic.id)
 
     expect(images[0].referenceImages).toEqual(job.referenceImages)
-    expect(images[0].imageGenerationPrompt).toContain("Reference images:")
+    expect(images[0].imageGenerationPrompt).toContain("<Reference images>")
     expect(images[0].imageGenerationPrompt).toContain(
       path.join(
         referenceDataDir,
@@ -1131,19 +1167,283 @@ describe("framebook service", () => {
         job.referenceImages[0].fileName
       ),
     })
+
+    const deletedTopicReference =
+      await referenceService.deleteTopicReferenceImage(
+        topic.id,
+        job.referenceImages[0].id
+      )
+    const persistedImage = await referenceService.getImage(images[0].id)
+
+    expect(deletedTopicReference.referenceImages).toHaveLength(0)
+    expect(persistedImage.referenceImages).toEqual(job.referenceImages)
+    await expect(
+      access(
+        path.join(
+          referenceDataDir,
+          "images",
+          topic.id,
+          job.referenceImages[0].fileName
+        )
+      )
+    ).resolves.toBeUndefined()
     await referenceService.close()
   })
 
-  it("accepts multipart reference images through the generation endpoint", async () => {
+  it("can explicitly exclude inherited topic reference images", async () => {
+    const referenceBuffer = await createPngBuffer({ width: 16, height: 10 })
+    const topic = await createTopic(service)
+    await service.addTopicReferenceImages(topic.id, [
+      {
+        originalName: "subject.png",
+        mimeType: "image/png",
+        sizeBytes: referenceBuffer.byteLength,
+        buffer: referenceBuffer,
+      },
+    ])
+
+    const job = await service.createGeneration(topic.id, {
+      rawPrompt: "Create this without any inherited references",
+      topicReferenceImageIds: [],
+    })
+
+    expect(job.referenceImages).toEqual([])
+  })
+
+  it("snapshots selected topic references with prompt-only reference uploads", async () => {
+    const firstReferenceBuffer = await createPngBuffer({
+      width: 16,
+      height: 10,
+    })
+    const secondReferenceBuffer = await createPngBuffer({
+      width: 20,
+      height: 12,
+    })
+    const promptReferenceBuffer = await createPngBuffer({
+      width: 24,
+      height: 14,
+    })
+    const topic = await createTopic(service)
+    const topicWithReferences = await service.addTopicReferenceImages(
+      topic.id,
+      [
+        {
+          originalName: "excluded.png",
+          mimeType: "image/png",
+          sizeBytes: firstReferenceBuffer.byteLength,
+          buffer: firstReferenceBuffer,
+        },
+        {
+          originalName: "selected.png",
+          mimeType: "image/png",
+          sizeBytes: secondReferenceBuffer.byteLength,
+          buffer: secondReferenceBuffer,
+        },
+      ]
+    )
+    const selectedReference = topicWithReferences.referenceImages[1]
+    const excludedReference = topicWithReferences.referenceImages[0]
+
+    const job = await service.createGeneration(topic.id, {
+      rawPrompt: "Use only the selected inherited reference and this pose shot",
+      topicReferenceImageIds: [selectedReference.id],
+      referenceImages: [
+        {
+          originalName: "pose.png",
+          mimeType: "image/png",
+          sizeBytes: promptReferenceBuffer.byteLength,
+          buffer: promptReferenceBuffer,
+        },
+      ],
+    })
+
+    expect(job.referenceImages).toHaveLength(2)
+    expect(job.referenceImages[0]).toEqual(selectedReference)
+    expect(job.referenceImages[1]).toMatchObject({
+      originalName: "pose.png",
+      mimeType: "image/png",
+      width: 24,
+      height: 14,
+    })
+    expect(job.referenceImages[1].fileName).toMatch(
+      new RegExp(`^references/jobs/${job.id}/.+\\.png$`, "u")
+    )
+    await expect(
+      access(
+        path.join(dataDir, "images", topic.id, job.referenceImages[1].fileName)
+      )
+    ).resolves.toBeUndefined()
+
+    await service.runGenerationJob(job.id)
+    const images = await service.listImages(topic.id)
+    const image = images[0]
+    const referenceBlock = extractPromptBlock(
+      image.imageGenerationPrompt,
+      "Reference images"
+    )
+
+    expect(image.referenceImages).toEqual(job.referenceImages)
+    expect(image.imageGenerationPrompt).toContain(
+      path.join(dataDir, "images", topic.id, selectedReference.fileName)
+    )
+    expect(image.imageGenerationPrompt).toContain(
+      path.join(dataDir, "images", topic.id, job.referenceImages[1].fileName)
+    )
+    expect(image.imageGenerationPrompt).not.toContain(
+      path.join(dataDir, "images", topic.id, excludedReference.fileName)
+    )
+    expect(referenceBlock).toContain("User-added reference images (primary)")
+    expect(referenceBlock).toContain("Topic reference images (supporting)")
+    expect(referenceBlock).toContain("prefer the user-added reference images")
+    expect(
+      referenceBlock.indexOf(job.referenceImages[1].fileName)
+    ).toBeLessThan(referenceBlock.indexOf(selectedReference.fileName))
+  })
+
+  it("rejects topic reference ids that do not belong to the topic", async () => {
+    const topic = await createTopic(service)
+
+    await expect(
+      service.createGeneration(topic.id, {
+        rawPrompt: "Use a missing inherited reference",
+        topicReferenceImageIds: ["missing-reference"],
+      })
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Reference image does not belong to topic",
+    })
+  })
+
+  it("rejects generation references above the total cap before writing prompt-only files", async () => {
+    const topic = await createTopic(service)
+    const topicReferenceFiles = await Promise.all(
+      Array.from({ length: 9 }, async (_, index) => {
+        const buffer = await createPngBuffer({ width: 8, height: 8 })
+        return {
+          originalName: `topic-${index}.png`,
+          mimeType: "image/png",
+          sizeBytes: buffer.byteLength,
+          buffer,
+        }
+      })
+    )
+    const topicWithReferences = await service.addTopicReferenceImages(
+      topic.id,
+      topicReferenceFiles
+    )
+    const promptReferenceFiles = await Promise.all(
+      Array.from({ length: 2 }, async (_, index) => {
+        const buffer = await createPngBuffer({ width: 8, height: 8 })
+        return {
+          originalName: `prompt-${index}.png`,
+          mimeType: "image/png",
+          sizeBytes: buffer.byteLength,
+          buffer,
+        }
+      })
+    )
+
+    await expect(
+      service.createGeneration(topic.id, {
+        rawPrompt: "This should exceed the reference cap",
+        topicReferenceImageIds: topicWithReferences.referenceImages.map(
+          (referenceImage) => referenceImage.id
+        ),
+        referenceImages: promptReferenceFiles,
+      })
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "You can attach up to 10 images",
+    })
+    await expect(
+      access(path.join(dataDir, "images", topic.id, "references", "jobs"))
+    ).rejects.toThrow()
+  })
+
+  it("accepts multipart reference images through the topic endpoint", async () => {
     const topic = await createTopic(service)
     const formData = new FormData()
-    formData.append("rawPrompt", "Make the subject wear a blue t-shirt")
-    formData.append("aspectRatio", "4:3")
     formData.append(
       "referenceImages",
       new File(
         [await createPngBuffer({ width: 12, height: 12 })],
         "subject.png",
+        {
+          type: "image/png",
+        }
+      )
+    )
+
+    await withServer(service, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/topics/${topic.id}/reference-images`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      )
+
+      expect(response.status).toBe(201)
+      const body = await response.json()
+      expect(body.referenceImages).toHaveLength(1)
+      expect(body.referenceImages[0]).toMatchObject({
+        originalName: "subject.png",
+        mimeType: "image/png",
+        width: 12,
+        height: 12,
+      })
+
+      const referenceResponse = await fetch(
+        `${baseUrl}/api/topics/${topic.id}/reference-images/${body.referenceImages[0].id}/file`
+      )
+
+      expect(referenceResponse.status).toBe(200)
+      expect(referenceResponse.headers.get("content-type")).toContain(
+        "image/png"
+      )
+      expect(
+        (await referenceResponse.arrayBuffer()).byteLength
+      ).toBeGreaterThan(0)
+      const job = await service.createGeneration(topic.id, {
+        rawPrompt: "Make the subject wear a blue t-shirt",
+        aspectRatio: "4:3",
+      })
+      expect(job.referenceImages).toEqual(body.referenceImages)
+    })
+  })
+
+  it("accepts multipart prompt reference images through the generation endpoint", async () => {
+    const topic = await createTopic(service)
+    const topicReferenceBuffer = await createPngBuffer({
+      width: 12,
+      height: 12,
+    })
+    const topicWithReferences = await service.addTopicReferenceImages(
+      topic.id,
+      [
+        {
+          originalName: "subject.png",
+          mimeType: "image/png",
+          sizeBytes: topicReferenceBuffer.byteLength,
+          buffer: topicReferenceBuffer,
+        },
+      ]
+    )
+    const selectedReference = topicWithReferences.referenceImages[0]
+    const formData = new FormData()
+    formData.append(
+      "payload",
+      JSON.stringify({
+        rawPrompt: "Make the subject wear a blue t-shirt",
+        aspectRatio: "4:3",
+        topicReferenceImageIds: [selectedReference.id],
+      })
+    )
+    formData.append(
+      "referenceImages",
+      new File(
+        [await createPngBuffer({ width: 14, height: 10 })],
+        "prompt.png",
         {
           type: "image/png",
         }
@@ -1161,26 +1461,17 @@ describe("framebook service", () => {
 
       expect(response.status).toBe(202)
       const body = await response.json()
-      expect(body.job.referenceImages).toHaveLength(1)
-      expect(body.job.referenceImages[0]).toMatchObject({
-        originalName: "subject.png",
+      expect(body.job.referenceImages).toHaveLength(2)
+      expect(body.job.referenceImages[0]).toEqual(selectedReference)
+      expect(body.job.referenceImages[1]).toMatchObject({
+        originalName: "prompt.png",
         mimeType: "image/png",
-        width: 12,
-        height: 12,
+        width: 14,
+        height: 10,
       })
-
-      const finishedJob = await service.runGenerationJob(body.job.id)
-      const referenceResponse = await fetch(
-        `${baseUrl}/api/images/${finishedJob.imageId}/references/${body.job.referenceImages[0].id}/file`
+      expect(body.job.referenceImages[1].fileName).toMatch(
+        new RegExp(`^references/jobs/${body.job.id}/.+\\.png$`, "u")
       )
-
-      expect(referenceResponse.status).toBe(200)
-      expect(referenceResponse.headers.get("content-type")).toContain(
-        "image/png"
-      )
-      expect(
-        (await referenceResponse.arrayBuffer()).byteLength
-      ).toBeGreaterThan(0)
     })
   })
 
@@ -1189,8 +1480,7 @@ describe("framebook service", () => {
 
     await withServer(service, async (baseUrl) => {
       const tooMany = new FormData()
-      tooMany.append("rawPrompt", "Use these references")
-      for (let index = 0; index < 6; index += 1) {
+      for (let index = 0; index < 11; index += 1) {
         tooMany.append(
           "referenceImages",
           new File(
@@ -1204,23 +1494,22 @@ describe("framebook service", () => {
       }
 
       const tooManyResponse = await fetch(
-        `${baseUrl}/api/topics/${topic.id}/generations`,
+        `${baseUrl}/api/topics/${topic.id}/reference-images`,
         { method: "POST", body: tooMany }
       )
       expect(tooManyResponse.status).toBe(400)
       await expect(tooManyResponse.json()).resolves.toMatchObject({
-        error: "You can attach up to 5 images",
+        error: "You can attach up to 10 images",
       })
 
       const unsupported = new FormData()
-      unsupported.append("rawPrompt", "Use this reference")
       unsupported.append(
         "referenceImages",
         new File(["not an image"], "notes.txt", { type: "text/plain" })
       )
 
       const unsupportedResponse = await fetch(
-        `${baseUrl}/api/topics/${topic.id}/generations`,
+        `${baseUrl}/api/topics/${topic.id}/reference-images`,
         { method: "POST", body: unsupported }
       )
       expect(unsupportedResponse.status).toBe(400)
@@ -1242,10 +1531,42 @@ describe("framebook service", () => {
 
     expect(prompt).toContain("image creation skill/tool")
     expect(prompt).toContain("Do not create a placeholder")
-    expect(prompt).toContain("Aspect ratio: 16:9")
+    expect(prompt).toContain("<Trusted Framebook generation contract>")
+    expect(prompt).toContain("</Trusted Framebook generation contract>")
+    expect(prompt).toContain("<Untrusted creative input>")
+    expect(prompt).toContain("</Untrusted creative input>")
+    expect(
+      extractPromptBlock(prompt, "Trusted Framebook generation contract")
+    ).toContain("Aspect ratio: 16:9")
+    expect(
+      extractPromptBlock(prompt, "Untrusted creative input")
+    ).not.toContain("Aspect ratio")
     expect(prompt).not.toContain("Raw prompt:")
     expect(prompt).toContain("Final cinematic tea stall prompt")
     expect(prompt).toContain(outputPath)
+    expect(prompt).not.toContain("<Research context>")
+    expect(prompt).not.toContain("<Reference images>")
+  })
+
+  it("builds the codex app-server prompt with a separate research context block", async () => {
+    const topic = await createTopic(service)
+    const prompt = buildImageGenerationPrompt({
+      prompt: "Generate a Ladakh travel poster.",
+      aspectRatio: "3:4",
+      topic,
+      researchContext:
+        "- Leh is a high-altitude town in Ladakh surrounded by dry mountains.",
+      outputPath: path.join(dataDir, "images", topic.id, "image.png"),
+    })
+    const researchBlock = extractPromptBlock(prompt, "Research context")
+
+    expect(researchBlock).toContain("Research context:")
+    expect(researchBlock).toContain("Leh is a high-altitude town")
+    expect(researchBlock).toContain("Research context rules:")
+    expect(researchBlock).toContain("factual grounding")
+    expect(
+      extractPromptBlock(prompt, "Untrusted creative input")
+    ).not.toContain("Leh is a high-altitude town")
   })
 
   it("builds the codex app-server prompt with reference image paths", async () => {
@@ -1269,10 +1590,11 @@ describe("framebook service", () => {
       outputPath: path.join(dataDir, "images", topic.id, "image.png"),
     })
 
-    expect(prompt).toContain("Reference images:")
+    expect(prompt).toContain("<Reference images>")
     expect(prompt).toContain(referencePath)
     expect(prompt).toContain("subject.png")
-    expect(prompt).toContain("visual references")
+    expect(prompt).toContain("Other reference images")
+    expect(prompt).toContain("Reference image rules:")
   })
 
   it("builds the codex app-server prompt enhancement contract", async () => {
@@ -1286,8 +1608,7 @@ describe("framebook service", () => {
     expect(prompt).toContain("Treat the original user prompt as authoritative")
     expect(prompt).toContain("visible text")
     expect(prompt).toContain("A product photo of a ceramic mug")
-    expect(prompt).not.toContain(topic.instruction)
-    expect(prompt).not.toContain(topic.basePromptDetails)
+    expect(prompt).not.toContain(topic.basePrompt)
     expect(prompt).not.toMatch(/aspect ratio|1:1|resolution|quality/iu)
   })
 
@@ -2114,16 +2435,46 @@ function createWarmEnhancerSessionFactory({
   }
 }
 
+async function seedLegacyDatabase({ dbPath, topic, image }) {
+  await mkdir(path.dirname(dbPath), { recursive: true })
+  const db = new DatabaseSync(dbPath)
+
+  try {
+    db.exec(`
+      CREATE TABLE topics (
+        id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE images (
+        id TEXT PRIMARY KEY,
+        topic_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE generation_jobs (
+        id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `)
+    db.prepare(
+      "INSERT INTO topics (id, payload, updated_at) VALUES (?, ?, ?)"
+    ).run(topic.id, JSON.stringify(topic), topic.updatedAt)
+    db.prepare(
+      "INSERT INTO images (id, topic_id, payload, created_at) VALUES (?, ?, ?, ?)"
+    ).run(image.id, image.topicId, JSON.stringify(image), image.createdAt)
+  } finally {
+    db.close()
+  }
+}
+
 async function createTopic(service) {
   return service.createTopic({
     name: "Monsoon Trip Story",
-    description: "A 5-image illustrated story about a rainy hill-station trip.",
-    instruction:
-      "Warm hand-drawn travel journal with expressive travelers, earthy colors, gentle rain, and minimal clutter.",
     defaultAspectRatio: "4:3",
-    basePromptDetails:
+    basePrompt:
       "Two travelers, one small backpack, recurring red scooter, misty hills",
-    creativeModeId: "scribble-studio",
   })
 }
 
@@ -2208,6 +2559,18 @@ function countJobStatuses(jobs) {
     }),
     { queued: 0, running: 0, succeeded: 0, failed: 0 }
   )
+}
+
+function extractPromptBlock(prompt, blockName) {
+  const startTag = `<${blockName}>`
+  const endTag = `</${blockName}>`
+  const start = prompt.indexOf(startTag)
+  const end = prompt.indexOf(endTag)
+
+  expect(start).toBeGreaterThanOrEqual(0)
+  expect(end).toBeGreaterThan(start)
+
+  return prompt.slice(start + startTag.length, end).trim()
 }
 
 async function finishReleasedGenerationJobs(service, topicId, releases) {

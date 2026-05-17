@@ -56,9 +56,9 @@ describe("optimized image grids", () => {
         topic={topicSummary}
         images={[imageRecord]}
         promptValue=""
-        referenceImages={[]}
+        selectedTopicReferenceImages={[]}
+        promptReferenceImages={[]}
         selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -68,11 +68,11 @@ describe("optimized image grids", () => {
         onEditTopic={vi.fn()}
         onArchiveTopic={vi.fn()}
         onPromptChange={vi.fn()}
-        onAddReferenceImages={vi.fn()}
-        onRemoveReferenceImage={vi.fn()}
+        onAddPromptReferenceImages={vi.fn()}
+        onRemovePromptReferenceImage={vi.fn()}
+        onRemoveSelectedTopicReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -107,57 +107,6 @@ describe("optimized image grids", () => {
     )
   })
 
-  it("renders and removes selected reference image attachments", () => {
-    const onRemoveReferenceImage = vi.fn()
-
-    render(
-      <TopicWorkspace
-        topic={topicSummary}
-        images={[]}
-        promptValue="Change the t-shirt color"
-        referenceImages={[
-          {
-            id: "reference-1",
-            file: new File(["png"], "subject.png", { type: "image/png" }),
-            previewUrl: "blob:subject",
-          },
-        ]}
-        selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
-        favoriteOnly={false}
-        job={null}
-        isEnhancing={false}
-        isCreatingGeneration={false}
-        isLoadingImages={false}
-        onBack={vi.fn()}
-        onEditTopic={vi.fn()}
-        onArchiveTopic={vi.fn()}
-        onPromptChange={vi.fn()}
-        onAddReferenceImages={vi.fn()}
-        onRemoveReferenceImage={onRemoveReferenceImage}
-        onReferenceImageError={vi.fn()}
-        onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={vi.fn()}
-        onEnhancePrompt={vi.fn()}
-        onGenerate={vi.fn()}
-        onToggleFavorite={vi.fn()}
-        onRevealImage={vi.fn()}
-        onPreviewImage={vi.fn()}
-        onViewImageDetails={vi.fn()}
-        onDownloadImage={vi.fn()}
-        onFavoriteFilterChange={vi.fn()}
-      />
-    )
-
-    expect(
-      screen.getByRole("img", { name: "Reference subject.png" })
-    ).toBeTruthy()
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove subject.png" }))
-
-    expect(onRemoveReferenceImage).toHaveBeenCalledWith("reference-1")
-  })
-
   it("keeps generation controls usable while background jobs are active", () => {
     const onGenerate = vi.fn()
 
@@ -166,9 +115,9 @@ describe("optimized image grids", () => {
         topic={topicSummary}
         images={[]}
         promptValue="A second poster prompt"
-        referenceImages={[]}
+        selectedTopicReferenceImages={[]}
+        promptReferenceImages={[]}
         selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         jobs={[runningGenerationJob]}
         isEnhancing={false}
@@ -178,11 +127,11 @@ describe("optimized image grids", () => {
         onEditTopic={vi.fn()}
         onArchiveTopic={vi.fn()}
         onPromptChange={vi.fn()}
-        onAddReferenceImages={vi.fn()}
-        onRemoveReferenceImage={vi.fn()}
+        onAddPromptReferenceImages={vi.fn()}
+        onRemovePromptReferenceImage={vi.fn()}
+        onRemoveSelectedTopicReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={onGenerate}
         onToggleFavorite={vi.fn()}
@@ -208,9 +157,9 @@ describe("optimized image grids", () => {
         topic={topicSummary}
         images={[]}
         promptValue="A poster prompt"
-        referenceImages={[]}
+        selectedTopicReferenceImages={[]}
+        promptReferenceImages={[]}
         selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         jobs={[runningGenerationJob]}
         isEnhancing={false}
@@ -221,11 +170,11 @@ describe("optimized image grids", () => {
         onEditTopic={vi.fn()}
         onArchiveTopic={vi.fn()}
         onPromptChange={vi.fn()}
-        onAddReferenceImages={vi.fn()}
-        onRemoveReferenceImage={vi.fn()}
+        onAddPromptReferenceImages={vi.fn()}
+        onRemovePromptReferenceImage={vi.fn()}
+        onRemoveSelectedTopicReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -238,104 +187,6 @@ describe("optimized image grids", () => {
     )
 
     expect(screen.getAllByLabelText("Generating image")).toHaveLength(5)
-  })
-
-  it("allows clearing an optional creative mode without a dropdown option", () => {
-    const onCreativeModeChange = vi.fn()
-
-    render(
-      <TopicWorkspace
-        topic={topicSummary}
-        images={[]}
-        promptValue=""
-        referenceImages={[]}
-        selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
-        favoriteOnly={false}
-        job={null}
-        isEnhancing={false}
-        isCreatingGeneration={false}
-        isLoadingImages={false}
-        onBack={vi.fn()}
-        onEditTopic={vi.fn()}
-        onArchiveTopic={vi.fn()}
-        onPromptChange={vi.fn()}
-        onAddReferenceImages={vi.fn()}
-        onRemoveReferenceImage={vi.fn()}
-        onReferenceImageError={vi.fn()}
-        onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={onCreativeModeChange}
-        onEnhancePrompt={vi.fn()}
-        onGenerate={vi.fn()}
-        onToggleFavorite={vi.fn()}
-        onRevealImage={vi.fn()}
-        onPreviewImage={vi.fn()}
-        onViewImageDetails={vi.fn()}
-        onDownloadImage={vi.fn()}
-        onFavoriteFilterChange={vi.fn()}
-      />
-    )
-
-    expect(
-      screen.queryByRole("option", { name: /No creative mode/u })
-    ).toBeNull()
-
-    fireEvent.click(screen.getByRole("button", { name: "Clear creative mode" }))
-
-    expect(onCreativeModeChange).toHaveBeenCalledWith("")
-  })
-
-  it("accepts image drops from the full topic workspace", async () => {
-    const onAddReferenceImages = vi.fn()
-    const file = new File(["png"], "screen.png", { type: "image/png" })
-
-    render(
-      <TopicWorkspace
-        topic={topicSummary}
-        images={[]}
-        promptValue="Use this reference"
-        referenceImages={[]}
-        selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
-        favoriteOnly={false}
-        job={null}
-        isEnhancing={false}
-        isCreatingGeneration={false}
-        isLoadingImages={false}
-        onBack={vi.fn()}
-        onEditTopic={vi.fn()}
-        onArchiveTopic={vi.fn()}
-        onPromptChange={vi.fn()}
-        onAddReferenceImages={onAddReferenceImages}
-        onRemoveReferenceImage={vi.fn()}
-        onReferenceImageError={vi.fn()}
-        onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={vi.fn()}
-        onEnhancePrompt={vi.fn()}
-        onGenerate={vi.fn()}
-        onToggleFavorite={vi.fn()}
-        onRevealImage={vi.fn()}
-        onPreviewImage={vi.fn()}
-        onViewImageDetails={vi.fn()}
-        onDownloadImage={vi.fn()}
-        onFavoriteFilterChange={vi.fn()}
-      />
-    )
-
-    const dropzone = screen.getByTestId("topic-workspace-dropzone")
-
-    fireEvent.dragEnter(dropzone, {
-      dataTransfer: referenceImageDataTransfer(file),
-    })
-
-    expect(screen.getByText("Add reference image")).toBeTruthy()
-
-    fireEvent.drop(dropzone, {
-      dataTransfer: referenceImageDataTransfer(file),
-    })
-
-    await waitFor(() => expect(onAddReferenceImages).toHaveBeenCalledOnce())
-    expect(onAddReferenceImages.mock.calls[0]?.[0]).toEqual([file])
   })
 
   it("reopens the same hovered image when v is pressed after closing preview", async () => {
@@ -455,7 +306,7 @@ describe("optimized image grids", () => {
     )
     expect(screen.getByText("Image generation prompt")).toBeTruthy()
     expect(
-      screen.queryByText(/Trusted Framebook generation contract:/)
+      screen.queryByText(/<Trusted Framebook generation contract>/)
     ).toBeNull()
     expect(screen.getByText("Enhanced prompt")).toBeTruthy()
     expect(screen.queryByText("User prompt")).toBeNull()
@@ -463,13 +314,13 @@ describe("optimized image grids", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Full" }))
     expect(
-      screen.getByText(/Trusted Framebook generation contract:/)
+      screen.getByText(/<Trusted Framebook generation contract>/)
     ).toBeTruthy()
     expect(screen.getByText(/Final image prompt:/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole("button", { name: "Default" }))
     expect(
-      screen.queryByText(/Trusted Framebook generation contract:/)
+      screen.queryByText(/<Trusted Framebook generation contract>/)
     ).toBeNull()
 
     fireEvent.mouseEnter(
@@ -652,9 +503,9 @@ function PreviewToggleHarness(props: { images?: Array<ImageRecord> }) {
         topic={topicSummary}
         images={props.images ?? [imageRecord]}
         promptValue=""
-        referenceImages={[]}
+        selectedTopicReferenceImages={[]}
+        promptReferenceImages={[]}
         selectedAspectRatio="4:3"
-        selectedCreativeModeId="blue-pin-poster"
         favoriteOnly={false}
         job={null}
         isEnhancing={false}
@@ -664,11 +515,11 @@ function PreviewToggleHarness(props: { images?: Array<ImageRecord> }) {
         onEditTopic={vi.fn()}
         onArchiveTopic={vi.fn()}
         onPromptChange={vi.fn()}
-        onAddReferenceImages={vi.fn()}
-        onRemoveReferenceImage={vi.fn()}
+        onAddPromptReferenceImages={vi.fn()}
+        onRemovePromptReferenceImage={vi.fn()}
+        onRemoveSelectedTopicReferenceImage={vi.fn()}
         onReferenceImageError={vi.fn()}
         onAspectRatioChange={vi.fn()}
-        onCreativeModeChange={vi.fn()}
         onEnhancePrompt={vi.fn()}
         onGenerate={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -694,11 +545,9 @@ function PreviewToggleHarness(props: { images?: Array<ImageRecord> }) {
 const topicSummary: TopicSummary = {
   id: "topic-1",
   name: "Travel Posters",
-  description: "Poster studies.",
-  instruction: "Use vintage travel poster style.",
   defaultAspectRatio: "4:3",
-  basePromptDetails: "Mountain railway",
-  creativeModeId: "blue-pin-poster",
+  basePrompt: "Mountain railway",
+  referenceImages: [],
   archivedAt: null,
   createdAt: "2026-05-04T10:00:00.000Z",
   updatedAt: "2026-05-04T10:00:00.000Z",
@@ -717,7 +566,6 @@ const runningGenerationJob: GenerationJob = {
   enhancedPrompt: "A running poster prompt",
   finalPrompt: "A running poster prompt",
   aspectRatio: "4:3",
-  creativeModeId: "blue-pin-poster",
   referenceImages: [],
   imageId: null,
   error: null,
@@ -733,32 +581,22 @@ const imageRecord: ImageRecord = {
   rawPrompt: "Mountain railway",
   enhancedPrompt: "Enhanced mountain railway.",
   finalPrompt: "Enhanced mountain railway.",
-  imageGenerationPrompt: `Trusted Framebook generation contract:
+  imageGenerationPrompt: `<Trusted Framebook generation contract>
 - Generate exactly one Framebook image using the available image creation skill/tool.
 - Do not create a placeholder, SVG stand-in, HTML/CSS drawing, or text-only artifact. The output must be a real bitmap PNG image.
+- Generation requirements:
+  - Aspect ratio: 4:3
+</Trusted Framebook generation contract>
 
+<Untrusted creative input>
 Topic: Travel Posters
-Topic instruction: Use vintage travel poster style.
-Aspect ratio: 4:3
+Base prompt: Mountain railway
 
 Final image prompt:
-Enhanced mountain railway.`,
+Enhanced mountain railway.
+</Untrusted creative input>`,
   aspectRatio: "4:3",
-  topicSnapshot: {
-    id: "topic-1",
-    name: "Travel Posters",
-    description: "Poster studies.",
-    instruction: "Use vintage travel poster style.",
-    defaultAspectRatio: "4:3",
-    basePromptDetails: "Mountain railway",
-    creativeModeId: "blue-pin-poster",
-  },
-  creativeMode: {
-    id: "blue-pin-poster",
-    name: "Blue Pin Poster",
-    basePromptDetails: "Mid-century travel poster.",
-    creativeDirection: "Use bold poster composition.",
-  },
+  topicSnapshot: topicSummary,
   favorite: true,
   archivedAt: null,
   fileName: "image-1.png",
@@ -806,18 +644,4 @@ const secondImageRecord: ImageRecord = {
     ...variant,
     fileName: variant.fileName.replace("image-1", "image-2"),
   })),
-}
-
-function referenceImageDataTransfer(file: File) {
-  return {
-    files: [file],
-    items: [
-      {
-        kind: "file",
-        type: file.type,
-        getAsFile: () => file,
-      },
-    ],
-    types: ["Files"],
-  }
 }

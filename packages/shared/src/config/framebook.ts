@@ -6,7 +6,7 @@ export const framebookImageTitleMaxLength = 60
 
 export const referenceImageConfig = {
   directoryName: "references",
-  maxFiles: 5,
+  maxFiles: 10,
   maxBytes: 10 * 1024 * 1024,
   maxSizeLabel: "10 MB",
   mimeTypes: ["image/png", "image/jpeg", "image/webp"],

@@ -146,9 +146,11 @@ function TopicCard({
                   {formatDate(topic.updatedAt)}
                 </time>
               </div>
-              <p className="mt-1 line-clamp-2 text-sm tracking-normal text-muted-foreground normal-case">
-                {topic.description || topic.instruction}
-              </p>
+              {topic.basePrompt ? (
+                <p className="mt-1 line-clamp-2 text-sm tracking-normal text-muted-foreground normal-case">
+                  {topic.basePrompt}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -157,6 +159,9 @@ function TopicCard({
         <span className="tracking-normal normal-case">
           {topic.imageCount} images
           {topic.favoriteCount > 0 ? `, ${topic.favoriteCount} starred` : ""}
+          {topic.referenceImages.length > 0
+            ? `, ${topic.referenceImages.length} references`
+            : ""}
         </span>
         <Button
           type="button"

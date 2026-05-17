@@ -3,7 +3,6 @@ import {
   Eye,
   ImageIcon,
   ImagePlus,
-  ImageUp,
   Loader2,
   Pencil,
   Search,
@@ -14,17 +13,12 @@ import {
 } from "lucide-react"
 import { useDropzone } from "react-dropzone"
 import { cn } from "@shared/lib/utils"
-import {
-  aspectRatioOptions,
-  creativeModeOptions,
-  generationVersionOptions,
-} from "../lib/constants"
+import { aspectRatioOptions, generationVersionOptions } from "../lib/constants"
 import { activeGenerationJobCount } from "../lib/generation"
 import {
   referenceImageConfig,
   referenceImageDropErrorMessage,
   referenceImageDropzoneAccept,
-  referenceImageMessages,
 } from "../lib/reference-images"
 import {
   formatDate,
@@ -32,19 +26,23 @@ import {
   imageGridSizes,
   imageSrcSet,
   imageVariantUrl,
+  topicReferenceImageUrl,
 } from "../lib/utils"
 import { useHoverPreviewShortcut } from "../lib/preview-shortcut"
 import { AppBreadcrumb } from "./app-breadcrumb"
 import { ConfirmationDialog } from "./confirmation-dialog"
-import type { DropzoneState } from "react-dropzone"
+import { ReferenceImageDropOverlay } from "./reference-image-drop-overlay"
 import type { ReactNode } from "react"
+import type { DropzoneState } from "react-dropzone"
 import type {
   AspectRatio,
   GenerationJob,
   GenerationVersionCount,
   ImageRecord,
+  ReferenceImage,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
+import type { PromptReferenceImageAttachment } from "../lib/types"
 import { Button } from "@/shared/ui/button"
 import {
   Select,
@@ -63,21 +61,15 @@ import {
   TooltipTrigger,
 } from "@/shared/ui/tooltip"
 
-interface ReferenceImageAttachment {
-  id: string
-  file: File
-  previewUrl: string
-}
-
 export function TopicWorkspace(props: {
   topic: TopicSummary
   images: Array<ImageRecord>
   promptValue: string
   originalPromptValue?: string
   isOptimizedPrompt?: boolean
-  referenceImages: Array<ReferenceImageAttachment>
+  selectedTopicReferenceImages: Array<ReferenceImage>
+  promptReferenceImages: Array<PromptReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
-  selectedCreativeModeId: string
   selectedVersionCount?: GenerationVersionCount
   creatingGenerationVersionCount?: number
   researchContextEnabled?: boolean
@@ -91,11 +83,11 @@ export function TopicWorkspace(props: {
   onEditTopic: () => void
   onArchiveTopic: () => void
   onPromptChange: (value: string) => void
-  onAddReferenceImages: (files: Array<File>) => void
-  onRemoveReferenceImage: (referenceImageId: string) => void
+  onAddPromptReferenceImages: (files: Array<File>) => void
+  onRemovePromptReferenceImage: (referenceImageId: string) => void
+  onRemoveSelectedTopicReferenceImage: (referenceImageId: string) => void
   onReferenceImageError: (message: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
-  onCreativeModeChange: (value: string) => void
   onVersionCountChange?: (value: GenerationVersionCount) => void
   onResearchContextChange?: (value: boolean) => void
   onEnhancePrompt: () => void
@@ -117,23 +109,27 @@ export function TopicWorkspace(props: {
     : 0
   const generatingPlaceholderCount = activeJobCount + pendingPlaceholderCount
   const isGenerating = generatingPlaceholderCount > 0
+  const selectedReferenceCount =
+    props.selectedTopicReferenceImages.length +
+    props.promptReferenceImages.length
   const availableReferenceSlots =
-    referenceImageConfig.maxFiles - props.referenceImages.length
+    referenceImageConfig.maxFiles - selectedReferenceCount
   const referenceImageDropzone = useDropzone({
     accept: referenceImageDropzoneAccept,
-    disabled: availableReferenceSlots <= 0,
+    disabled: isGenerating || availableReferenceSlots <= 0,
     maxFiles: Math.max(1, availableReferenceSlots),
     maxSize: referenceImageConfig.maxBytes,
     multiple: true,
     noClick: true,
     noKeyboard: true,
-    onDropAccepted: props.onAddReferenceImages,
+    onDropAccepted: props.onAddPromptReferenceImages,
     onDropRejected: (rejections) => {
       props.onReferenceImageError(referenceImageDropErrorMessage(rejections))
     },
   })
   const isReferenceImageDragActive =
-    referenceImageDropzone.isDragActive || referenceImageDropzone.isDragGlobal
+    referenceImageDropzone.isDragActive ||
+    isDropzoneGloballyActive(referenceImageDropzone)
 
   return (
     <div
@@ -148,6 +144,7 @@ export function TopicWorkspace(props: {
       {isReferenceImageDragActive ? (
         <ReferenceImageDropOverlay
           isRejecting={referenceImageDropzone.isDragReject}
+          body="Drop it anywhere to add it to this prompt."
         />
       ) : null}
       <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-border/60 bg-background/92 pb-2 backdrop-blur-sm lg:flex-row lg:items-center lg:justify-between">
@@ -200,23 +197,27 @@ export function TopicWorkspace(props: {
             promptValue={props.promptValue}
             originalPromptValue={props.originalPromptValue}
             isOptimizedPrompt={props.isOptimizedPrompt}
-            referenceImages={props.referenceImages}
+            topicId={props.topic.id}
+            selectedTopicReferenceImages={props.selectedTopicReferenceImages}
+            promptReferenceImages={props.promptReferenceImages}
             selectedAspectRatio={props.selectedAspectRatio}
-            selectedCreativeModeId={props.selectedCreativeModeId}
             selectedVersionCount={props.selectedVersionCount ?? 1}
             researchContextEnabled={props.researchContextEnabled ?? false}
             isEnhancing={props.isEnhancing}
             isSubmittingGeneration={props.isCreatingGeneration}
             canGenerate={canGenerate}
+            availableReferenceSlots={availableReferenceSlots}
+            referenceImageDropzone={referenceImageDropzone}
             onPromptChange={props.onPromptChange}
-            onRemoveReferenceImage={props.onRemoveReferenceImage}
+            onRemovePromptReferenceImage={props.onRemovePromptReferenceImage}
+            onRemoveSelectedTopicReferenceImage={
+              props.onRemoveSelectedTopicReferenceImage
+            }
             onAspectRatioChange={props.onAspectRatioChange}
-            onCreativeModeChange={props.onCreativeModeChange}
             onVersionCountChange={props.onVersionCountChange}
             onResearchContextChange={props.onResearchContextChange}
             onEnhancePrompt={props.onEnhancePrompt}
             onGenerate={props.onGenerate}
-            referenceImageDropzone={referenceImageDropzone}
           />
         </div>
       </section>
@@ -273,26 +274,29 @@ function PromptComposer(props: {
   promptValue: string
   originalPromptValue?: string
   isOptimizedPrompt?: boolean
-  referenceImages: Array<ReferenceImageAttachment>
+  topicId: string
+  selectedTopicReferenceImages: Array<ReferenceImage>
+  promptReferenceImages: Array<PromptReferenceImageAttachment>
   selectedAspectRatio: AspectRatio
-  selectedCreativeModeId: string
   selectedVersionCount: GenerationVersionCount
   researchContextEnabled: boolean
   isEnhancing: boolean
   isSubmittingGeneration: boolean
   canGenerate: boolean
+  availableReferenceSlots: number
   referenceImageDropzone: DropzoneState
   onPromptChange: (value: string) => void
-  onRemoveReferenceImage: (referenceImageId: string) => void
+  onRemovePromptReferenceImage: (referenceImageId: string) => void
+  onRemoveSelectedTopicReferenceImage: (referenceImageId: string) => void
   onAspectRatioChange: (value: AspectRatio) => void
-  onCreativeModeChange: (value: string) => void
   onVersionCountChange?: (value: GenerationVersionCount) => void
   onResearchContextChange?: (value: boolean) => void
   onEnhancePrompt: () => void
   onGenerate: () => void
 }) {
-  const availableReferenceSlots =
-    referenceImageConfig.maxFiles - props.referenceImages.length
+  const hasReferenceImages =
+    props.selectedTopicReferenceImages.length > 0 ||
+    props.promptReferenceImages.length > 0
   const showOriginalPrompt =
     props.isOptimizedPrompt && Boolean(props.originalPromptValue?.trim())
 
@@ -316,21 +320,44 @@ function PromptComposer(props: {
             onChange={(event) => props.onPromptChange(event.target.value)}
             rows={3}
             className={cn(
-              "min-h-18 resize-none border-border/50 bg-background/60 pr-48 pb-13 text-sm",
-              props.referenceImages.length > 0 ? "min-h-36 pb-24" : ""
+              "min-h-18 resize-none border-border/50 bg-background/60 pr-44 pb-13 text-sm",
+              hasReferenceImages ? "min-h-36 pb-24" : ""
             )}
             placeholder="Describe the image you want to create..."
           />
-          {props.referenceImages.length > 0 ? (
+          {hasReferenceImages ? (
             <ReferenceImageStrip
-              referenceImages={props.referenceImages}
-              onRemoveReferenceImage={props.onRemoveReferenceImage}
+              topicId={props.topicId}
+              selectedTopicReferenceImages={props.selectedTopicReferenceImages}
+              promptReferenceImages={props.promptReferenceImages}
+              onRemovePromptReferenceImage={props.onRemovePromptReferenceImage}
+              onRemoveSelectedTopicReferenceImage={
+                props.onRemoveSelectedTopicReferenceImage
+              }
             />
           ) : null}
           <TooltipProvider>
             <TooltipIconButton
+              tooltip="Attach reference images"
+              className="absolute right-24 bottom-3"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Attach reference images"
+                disabled={
+                  props.isSubmittingGeneration ||
+                  props.availableReferenceSlots <= 0
+                }
+                onClick={props.referenceImageDropzone.open}
+              >
+                <ImagePlus data-icon="inline-start" />
+              </Button>
+            </TooltipIconButton>
+            <TooltipIconButton
               tooltip="Research context"
-              className="absolute right-25 bottom-3"
+              className="absolute right-14 bottom-3"
             >
               <Button
                 type="button"
@@ -352,7 +379,7 @@ function PromptComposer(props: {
             </TooltipIconButton>
             <TooltipIconButton
               tooltip="AI enhance"
-              className="absolute right-14 bottom-3"
+              className="absolute right-3 bottom-3"
             >
               <Button
                 type="button"
@@ -367,21 +394,6 @@ function PromptComposer(props: {
                 ) : (
                   <Sparkles data-icon="inline-start" />
                 )}
-              </Button>
-            </TooltipIconButton>
-            <TooltipIconButton
-              tooltip="Attach reference image"
-              className="absolute right-3 bottom-3"
-            >
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label="Attach reference images"
-                disabled={availableReferenceSlots <= 0}
-                onClick={props.referenceImageDropzone.open}
-              >
-                <ImagePlus data-icon="inline-start" />
               </Button>
             </TooltipIconButton>
           </TooltipProvider>
@@ -447,41 +459,6 @@ function PromptComposer(props: {
               </SelectGroup>
             </SelectContent>
           </Select>
-
-          <div className="flex w-full gap-1 sm:w-auto">
-            <Select
-              value={props.selectedCreativeModeId}
-              onValueChange={props.onCreativeModeChange}
-            >
-              <SelectTrigger
-                className="min-w-0 flex-1 text-xs sm:w-52"
-                aria-label="Creative mode"
-              >
-                <SelectValue placeholder="Mode" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {creativeModeOptions.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {option.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {props.selectedCreativeModeId ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                aria-label="Clear creative mode"
-                title="Clear creative mode"
-                onClick={() => props.onCreativeModeChange("")}
-              >
-                <X />
-              </Button>
-            ) : null}
-          </div>
         </div>
 
         <div className="flex gap-2">
@@ -505,31 +482,79 @@ function PromptComposer(props: {
   )
 }
 
-function ReferenceImageDropOverlay(props: { isRejecting: boolean }) {
+function ReferenceImageStrip(props: {
+  topicId: string
+  selectedTopicReferenceImages: Array<ReferenceImage>
+  promptReferenceImages: Array<PromptReferenceImageAttachment>
+  onRemovePromptReferenceImage: (referenceImageId: string) => void
+  onRemoveSelectedTopicReferenceImage: (referenceImageId: string) => void
+}) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-background/82 px-6 text-center backdrop-blur-sm">
-      <div className="pointer-events-none flex max-w-sm flex-col items-center">
-        <div
-          className={cn(
-            "mb-5 grid size-20 place-items-center rounded-2xl border bg-card text-ring shadow-lg shadow-black/25",
-            props.isRejecting
-              ? "border-destructive/45 text-destructive"
-              : "border-ring/35"
-          )}
-        >
-          <ImageUp className="size-9" strokeWidth={1.75} />
-        </div>
-        <div className="text-2xl font-semibold tracking-tight">
-          {props.isRejecting
-            ? referenceImageMessages.dropUnsupportedTitle
-            : referenceImageMessages.dropSupportedTitle}
-        </div>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {props.isRejecting
-            ? referenceImageMessages.dropUnsupportedBody
-            : referenceImageMessages.dropSupportedBody}
-        </p>
+    <div className="absolute right-36 bottom-3 left-3">
+      <div className="flex gap-2 overflow-x-auto">
+        {props.selectedTopicReferenceImages.map((referenceImage) => (
+          <ReferenceImageChip
+            key={referenceImage.id}
+            src={topicReferenceImageUrl(props.topicId, referenceImage.id)}
+            name={referenceImage.originalName}
+            label="Topic"
+            onRemove={() =>
+              props.onRemoveSelectedTopicReferenceImage(referenceImage.id)
+            }
+          />
+        ))}
+        {props.promptReferenceImages.map((referenceImage) => (
+          <ReferenceImageChip
+            key={referenceImage.id}
+            src={referenceImage.previewUrl}
+            name={referenceImage.file.name}
+            label="Prompt"
+            onRemove={() =>
+              props.onRemovePromptReferenceImage(referenceImage.id)
+            }
+          />
+        ))}
       </div>
+    </div>
+  )
+}
+
+function ReferenceImageChip(props: {
+  src: string
+  name: string
+  label: string
+  onRemove: () => void
+}) {
+  return (
+    <div
+      className="group relative size-18 shrink-0 overflow-hidden rounded-xl border border-border/50 bg-muted"
+      title={props.name}
+    >
+      <a
+        href={props.src}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${props.name}`}
+      >
+        <img
+          src={props.src}
+          alt={props.name}
+          className="size-full object-cover"
+        />
+      </a>
+      <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/70 px-1 py-0.5 text-[9px] font-medium tracking-wide text-white uppercase">
+        {props.label}
+      </span>
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon-xs"
+        className="absolute top-1 right-1"
+        aria-label={`Remove ${props.name}`}
+        onClick={props.onRemove}
+      >
+        <X data-icon="inline-start" />
+      </Button>
     </div>
   )
 }
@@ -553,46 +578,8 @@ function TooltipIconButton(props: {
   )
 }
 
-function ReferenceImageStrip(props: {
-  referenceImages: Array<ReferenceImageAttachment>
-  onRemoveReferenceImage: (referenceImageId: string) => void
-}) {
-  return (
-    <div className="absolute right-28 bottom-3 left-3">
-      <div className="flex gap-2 overflow-x-auto">
-        {props.referenceImages.map((referenceImage) => (
-          <div
-            key={referenceImage.id}
-            className="relative size-18 shrink-0 overflow-hidden rounded-xl border border-border/50 bg-muted"
-            title={referenceImage.file.name}
-          >
-            <a
-              href={referenceImage.previewUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`Open ${referenceImage.file.name}`}
-            >
-              <img
-                src={referenceImage.previewUrl}
-                alt={`Reference ${referenceImage.file.name}`}
-                className="size-full object-cover"
-              />
-            </a>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-xs"
-              className="absolute top-1 right-1"
-              aria-label={`Remove ${referenceImage.file.name}`}
-              onClick={() => props.onRemoveReferenceImage(referenceImage.id)}
-            >
-              <X data-icon="inline-start" />
-            </Button>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+function isDropzoneGloballyActive(dropzone: DropzoneState) {
+  return dropzone.isDragGlobal
 }
 
 function GalleryCanvas(props: {

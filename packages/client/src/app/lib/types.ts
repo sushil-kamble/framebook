@@ -7,16 +7,20 @@ export type Screen =
   | "topic-editor"
   | "image-detail"
 
-export type RouteScreen = Screen
-
 export interface FramebookRouteState {
-  routeScreen: RouteScreen
+  routeScreen: Screen
   routeTopicId?: string
   routeImageId?: string
 }
 
 export interface FramebookAppProps {
-  routeScreen?: RouteScreen
+  routeScreen?: Screen
   routeTopicId?: string
   routeImageId?: string
+}
+
+export interface PromptReferenceImageAttachment {
+  id: string
+  file: File
+  previewUrl: string
 }

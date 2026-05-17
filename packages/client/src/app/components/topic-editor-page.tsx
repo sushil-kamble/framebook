@@ -1,10 +1,27 @@
-import { useState } from "react"
-import { ArrowLeft, Loader2, Pencil, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { ArrowLeft, ImagePlus, Loader2, Pencil, X } from "lucide-react"
+import { useDropzone } from "react-dropzone"
 import { validateTopicDraft } from "@app/lib/topic-form"
-import { aspectRatioOptions, creativeModeOptions } from "../lib/constants"
+import { aspectRatioOptions } from "../lib/constants"
+import {
+  referenceImageConfig,
+  referenceImageDropErrorMessage,
+  referenceImageDropzoneAccept,
+} from "../lib/reference-images"
+import {
+  createClientId,
+  createObjectUrl,
+  revokeObjectUrl,
+  topicReferenceImageUrl,
+} from "../lib/utils"
 import { AppBreadcrumb } from "./app-breadcrumb"
+import { ReferenceImageDropOverlay } from "./reference-image-drop-overlay"
 import type { ReactNode } from "react"
-import type { AspectRatio } from "@framebook/shared/contracts/framebook"
+import type { DropzoneState } from "react-dropzone"
+import type {
+  AspectRatio,
+  ReferenceImage,
+} from "@framebook/shared/contracts/framebook"
 import type { TopicDraft } from "@app/lib/topic-form"
 import { Button } from "@/shared/ui/button"
 import {
@@ -17,11 +34,21 @@ import {
 } from "@/shared/ui/select"
 import { Textarea } from "@/shared/ui/textarea"
 
+interface PendingReferenceImage {
+  id: string
+  file: File
+  previewUrl: string
+}
+
 export function TopicEditorPage({
   editor,
   onCancel,
   onTopicsClick,
   onTopicClick,
+  onDraftChange,
+  onReferenceImageError,
+  onAddReferenceImages,
+  onRemoveReferenceImage,
   onSubmit,
 }: {
   editor: {
@@ -29,22 +56,67 @@ export function TopicEditorPage({
     draft: TopicDraft
     topicId?: string
     topicName?: string
+    referenceImages?: Array<ReferenceImage>
   }
   onCancel: () => void
   onTopicsClick: () => void
   onTopicClick: () => void
-  onSubmit: (draft: TopicDraft) => Promise<void>
+  onDraftChange?: (draft: TopicDraft) => void
+  onReferenceImageError: (message: string) => void
+  onAddReferenceImages: (topicId: string, files: Array<File>) => Promise<void>
+  onRemoveReferenceImage: (
+    topicId: string,
+    referenceImageId: string
+  ) => Promise<void>
+  onSubmit: (draft: TopicDraft, referenceFiles: Array<File>) => Promise<void>
 }) {
   const [draft, setDraft] = useState(editor.draft)
   const [errors, setErrors] = useState<
     Partial<Record<keyof TopicDraft, string>>
   >({})
   const [isSaving, setIsSaving] = useState(false)
-  const [hasEditedAspectRatio, setHasEditedAspectRatio] = useState(
-    editor.mode === "edit"
-  )
-  const [hasEditedBasePromptDetails, setHasEditedBasePromptDetails] = useState(
-    editor.mode === "edit"
+  const [isMutatingReferences, setIsMutatingReferences] = useState(false)
+  const [pendingReferences, setPendingReferences] = useState<
+    Array<PendingReferenceImage>
+  >([])
+  const pendingReferencesRef = useRef(pendingReferences)
+  const existingReferenceImages = editor.referenceImages ?? []
+  const referenceCount =
+    existingReferenceImages.length + pendingReferences.length
+  const availableReferenceSlots = referenceImageConfig.maxFiles - referenceCount
+  const referenceImageDropzone = useDropzone({
+    accept: referenceImageDropzoneAccept,
+    disabled: availableReferenceSlots <= 0 || isMutatingReferences || isSaving,
+    maxFiles: Math.max(1, availableReferenceSlots),
+    maxSize: referenceImageConfig.maxBytes,
+    multiple: true,
+    noClick: true,
+    noKeyboard: true,
+    onDropAccepted: (files) => {
+      void addReferenceImages(files)
+    },
+    onDropRejected: (rejections) => {
+      onReferenceImageError(referenceImageDropErrorMessage(rejections))
+    },
+  })
+
+  useEffect(() => {
+    if (editor.mode === "create") {
+      onDraftChange?.(draft)
+    }
+  }, [draft, editor.mode, onDraftChange])
+
+  useEffect(() => {
+    pendingReferencesRef.current = pendingReferences
+  }, [pendingReferences])
+
+  useEffect(
+    () => () => {
+      for (const referenceImage of pendingReferencesRef.current) {
+        revokeObjectUrl(referenceImage.previewUrl)
+      }
+    },
+    []
   )
 
   const updateDraft = <TKey extends keyof TopicDraft>(
@@ -54,31 +126,68 @@ export function TopicEditorPage({
     setDraft((current) => ({ ...current, [key]: value }))
   }
 
-  const updateCreativeDirection = (value: string) => {
-    setDraft((current) => ({
+  const addReferenceImages = async (files: Array<File>) => {
+    if (files.length === 0) {
+      return
+    }
+
+    if (files.length > availableReferenceSlots) {
+      onReferenceImageError(
+        `You can attach up to ${referenceImageConfig.maxFiles} images`
+      )
+    }
+
+    const selectedFiles = files.slice(0, Math.max(0, availableReferenceSlots))
+    if (selectedFiles.length === 0) {
+      return
+    }
+
+    if (editor.mode === "edit" && editor.topicId) {
+      setIsMutatingReferences(true)
+      try {
+        await onAddReferenceImages(editor.topicId, selectedFiles)
+      } finally {
+        setIsMutatingReferences(false)
+      }
+      return
+    }
+
+    setPendingReferences((current) => [
       ...current,
-      description: value,
-      instruction: value,
-    }))
+      ...selectedFiles.map((file) => ({
+        id: createClientId(),
+        file,
+        previewUrl: createObjectUrl(file),
+      })),
+    ])
   }
 
-  const updateCreativeMode = (creativeModeId: string) => {
-    const mode = creativeModeOptions.find(
-      (candidate) => candidate.id === creativeModeId
-    )
+  const removePendingReferenceImage = (referenceImageId: string) => {
+    setPendingReferences((current) => {
+      const removed = current.find(
+        (referenceImage) => referenceImage.id === referenceImageId
+      )
+      if (removed) {
+        revokeObjectUrl(removed.previewUrl)
+      }
 
-    setDraft((current) => ({
-      ...current,
-      creativeModeId,
-      defaultAspectRatio:
-        !hasEditedAspectRatio && mode
-          ? mode.defaultAspectRatio
-          : current.defaultAspectRatio,
-      basePromptDetails:
-        !hasEditedBasePromptDetails && mode
-          ? mode.basePromptDetails
-          : current.basePromptDetails,
-    }))
+      return current.filter(
+        (referenceImage) => referenceImage.id !== referenceImageId
+      )
+    })
+  }
+
+  const removeExistingReferenceImage = async (referenceImageId: string) => {
+    if (!editor.topicId) {
+      return
+    }
+
+    setIsMutatingReferences(true)
+    try {
+      await onRemoveReferenceImage(editor.topicId, referenceImageId)
+    } finally {
+      setIsMutatingReferences(false)
+    }
   }
 
   const submit = async () => {
@@ -91,13 +200,19 @@ export function TopicEditorPage({
 
     setIsSaving(true)
     try {
-      await onSubmit(draft)
+      await onSubmit(
+        draft,
+        pendingReferences.map((referenceImage) => referenceImage.file)
+      )
     } finally {
       setIsSaving(false)
     }
   }
 
   const heading = editor.mode === "create" ? "Create Topic" : "Edit Topic"
+  const isReferenceImageDragActive =
+    referenceImageDropzone.isDragActive ||
+    isDropzoneGloballyActive(referenceImageDropzone)
   const breadcrumbItems =
     editor.mode === "create"
       ? [{ label: "Topics", onClick: onTopicsClick }, { label: heading }]
@@ -111,7 +226,20 @@ export function TopicEditorPage({
         ]
 
   return (
-    <div className="topic-editor-stage relative flex min-h-svh flex-col">
+    <div
+      {...referenceImageDropzone.getRootProps({
+        "aria-label": "Topic reference image dropzone",
+        "data-testid": "topic-editor-dropzone",
+        className: "topic-editor-stage relative flex min-h-svh flex-col",
+      })}
+    >
+      <input {...referenceImageDropzone.getInputProps()} />
+      {isReferenceImageDragActive ? (
+        <ReferenceImageDropOverlay
+          isRejecting={referenceImageDropzone.isDragReject}
+          body="Drop it anywhere to add it to this topic."
+        />
+      ) : null}
       <div className="topic-editor-vignette pointer-events-none absolute inset-0" />
 
       <header className="sticky top-0 z-20 border-b border-border/60 bg-background/92 px-5 py-4 shadow-sm backdrop-blur-sm sm:px-10 lg:px-14">
@@ -133,50 +261,35 @@ export function TopicEditorPage({
               />
             </Field>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <CreativeModePicker
-                value={draft.creativeModeId}
-                error={errors.creativeModeId}
-                onChange={updateCreativeMode}
-              />
-              <AspectRatioPicker
-                value={draft.defaultAspectRatio}
-                onChange={(value) => {
-                  setHasEditedAspectRatio(true)
-                  updateDraft("defaultAspectRatio", value)
-                }}
-              />
-            </div>
+            <AspectRatioPicker
+              value={draft.defaultAspectRatio}
+              onChange={(value) => updateDraft("defaultAspectRatio", value)}
+            />
 
-            <CreativeModePreview creativeModeId={draft.creativeModeId} />
-
-            <Field
-              label="Description / Topic Instruction"
-              error={errors.instruction}
-            >
+            <Field label="Base Prompt">
               <Textarea
-                value={draft.instruction}
+                value={draft.basePrompt}
                 onChange={(event) =>
-                  updateCreativeDirection(event.target.value)
+                  updateDraft("basePrompt", event.target.value)
                 }
                 rows={6}
                 className="topic-editor-input min-h-32 resize-y"
-                placeholder="Describe what this topic is about and the direction every generation should follow."
+                placeholder="Add reusable base prompt text, style notes, constraints, or recurring elements for this topic."
               />
             </Field>
 
-            <Field label="Base Prompt Details">
-              <Textarea
-                value={draft.basePromptDetails}
-                onChange={(event) => {
-                  setHasEditedBasePromptDetails(true)
-                  updateDraft("basePromptDetails", event.target.value)
-                }}
-                rows={6}
-                className="topic-editor-input min-h-32 resize-y"
-                placeholder="Add reusable prompt details, style notes, constraints, or recurring elements for this topic."
-              />
-            </Field>
+            <ReferenceImageManager
+              topicId={editor.topicId}
+              existingReferenceImages={existingReferenceImages}
+              pendingReferences={pendingReferences}
+              isBusy={isMutatingReferences || isSaving}
+              availableReferenceSlots={availableReferenceSlots}
+              onOpen={referenceImageDropzone.open}
+              onRemoveExistingReferenceImage={(referenceImageId) => {
+                void removeExistingReferenceImage(referenceImageId)
+              }}
+              onRemovePendingReferenceImage={removePendingReferenceImage}
+            />
 
             <div className="mt-2 flex items-center justify-between border-t border-border/35 pt-5">
               <Button
@@ -191,7 +304,7 @@ export function TopicEditorPage({
               <Button
                 type="button"
                 size="default"
-                disabled={isSaving}
+                disabled={isSaving || isMutatingReferences}
                 onClick={submit}
                 className="min-w-32"
               >
@@ -210,73 +323,131 @@ export function TopicEditorPage({
   )
 }
 
-function CreativeModePicker({
-  value,
-  error,
-  onChange,
+function ReferenceImageManager({
+  topicId,
+  existingReferenceImages,
+  pendingReferences,
+  isBusy,
+  availableReferenceSlots,
+  onOpen,
+  onRemoveExistingReferenceImage,
+  onRemovePendingReferenceImage,
 }: {
-  value: string
-  error?: string
-  onChange: (value: string) => void
+  topicId?: string
+  existingReferenceImages: Array<ReferenceImage>
+  pendingReferences: Array<PendingReferenceImage>
+  isBusy: boolean
+  availableReferenceSlots: number
+  onOpen: () => void
+  onRemoveExistingReferenceImage: (referenceImageId: string) => void
+  onRemovePendingReferenceImage: (referenceImageId: string) => void
 }) {
+  const hasReferences =
+    existingReferenceImages.length > 0 || pendingReferences.length > 0
+
   return (
-    <div className="flex flex-col gap-2">
-      <label className="text-sm font-semibold" htmlFor="topic-creative-mode">
-        Creative mode
-      </label>
-      <div className="flex gap-2">
-        <Select value={value} onValueChange={onChange}>
-          <SelectTrigger
-            id="topic-creative-mode"
-            className="topic-editor-input min-w-0 flex-1"
-            aria-label="Creative mode"
-          >
-            <SelectValue placeholder="Select creative mode" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {creativeModeOptions.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        {value ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label="Clear creative mode"
-            title="Clear creative mode"
-            onClick={() => onChange("")}
-          >
-            <X />
-          </Button>
-        ) : null}
+    <section className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold">Reference Images</div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={availableReferenceSlots <= 0 || isBusy}
+          onClick={onOpen}
+        >
+          <ImagePlus data-icon="inline-start" />
+          Add
+        </Button>
       </div>
-      {error ? <span className="text-xs text-destructive">{error}</span> : null}
-    </div>
+      <div className="min-h-28 rounded-xl border border-dashed border-border/60 bg-background/45 p-3 transition-colors">
+        {hasReferences ? (
+          <div className="flex flex-wrap gap-2">
+            {existingReferenceImages.map((referenceImage) => (
+              <ReferenceImageTile
+                key={referenceImage.id}
+                src={
+                  topicId
+                    ? topicReferenceImageUrl(topicId, referenceImage.id)
+                    : ""
+                }
+                name={referenceImage.originalName}
+                width={referenceImage.width}
+                height={referenceImage.height}
+                disabled={isBusy}
+                onRemove={() =>
+                  onRemoveExistingReferenceImage(referenceImage.id)
+                }
+              />
+            ))}
+            {pendingReferences.map((referenceImage) => (
+              <ReferenceImageTile
+                key={referenceImage.id}
+                src={referenceImage.previewUrl}
+                name={referenceImage.file.name}
+                disabled={isBusy}
+                onRemove={() =>
+                  onRemovePendingReferenceImage(referenceImage.id)
+                }
+              />
+            ))}
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="flex min-h-20 w-full items-center justify-center rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted/40"
+            disabled={availableReferenceSlots <= 0 || isBusy}
+            onClick={onOpen}
+          >
+            <ImagePlus className="mr-2 size-4" />
+            Add reference images
+          </button>
+        )}
+      </div>
+    </section>
   )
 }
 
-function CreativeModePreview({ creativeModeId }: { creativeModeId: string }) {
-  const mode = creativeModeOptions.find(
-    (option) => option.id === creativeModeId
-  )
-
-  if (!mode) {
-    return null
-  }
-
+function ReferenceImageTile({
+  src,
+  name,
+  width,
+  height,
+  disabled,
+  onRemove,
+}: {
+  src: string
+  name: string
+  width?: number
+  height?: number
+  disabled: boolean
+  onRemove: () => void
+}) {
   return (
-    <div className="rounded-xl border border-border/45 bg-muted/25 px-3.5 py-3 text-sm">
-      <div className="font-semibold">{mode.name}</div>
-      <p className="mt-1 text-muted-foreground">{mode.summary}</p>
-      <p className="mt-2 text-xs leading-5 text-foreground/70">
-        {mode.creativeDirection}
-      </p>
+    <div
+      className="relative size-20 overflow-hidden rounded-xl border border-border/50 bg-muted"
+      title={name}
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={name}
+          width={width}
+          height={height}
+          className="size-full object-cover"
+        />
+      ) : null}
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon-xs"
+        className="absolute top-1 right-1"
+        disabled={disabled}
+        aria-label={`Remove ${name}`}
+        onClick={onRemove}
+      >
+        <X data-icon="inline-start" />
+      </Button>
     </div>
   )
 }
@@ -336,4 +507,8 @@ function Field({
       ) : null}
     </label>
   )
+}
+
+function isDropzoneGloballyActive(dropzone: DropzoneState) {
+  return dropzone.isDragGlobal
 }

@@ -6,10 +6,9 @@ import type { TopicSummary } from "@framebook/shared/contracts/framebook"
 const baseTopic = (overrides: Partial<TopicSummary> = {}): TopicSummary => ({
   id: "topic-1",
   name: "Topic One",
-  description: "",
-  instruction: "",
   defaultAspectRatio: "16:9",
-  basePromptDetails: "",
+  basePrompt: "",
+  referenceImages: [],
   archivedAt: null,
   createdAt: "2026-04-01T10:00:00.000Z",
   updatedAt: "2026-04-01T10:00:00.000Z",
@@ -18,7 +17,6 @@ const baseTopic = (overrides: Partial<TopicSummary> = {}): TopicSummary => ({
   latestImageId: null,
   latestImageCreatedAt: null,
   ...overrides,
-  creativeModeId: overrides.creativeModeId ?? "animal-infographic",
 })
 
 describe("sidebar layout", () => {

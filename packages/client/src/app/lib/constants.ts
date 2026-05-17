@@ -1,4 +1,3 @@
-import { creativeModeCatalog } from "@framebook/shared/creative-modes"
 import {
   aspectRatios,
   generationVersionCounts,
@@ -37,7 +36,5 @@ export const generationVersionOptions: Array<{
   value,
   label: `${value}x`,
 }))
-
-export const creativeModeOptions = creativeModeCatalog
 
 export const generationPollIntervalMs = 2000

@@ -6,9 +6,9 @@ import {
   referenceImageConfig,
 } from "@framebook/shared/config/framebook"
 
-export const ASPECT_RATIOS = new Set(aspectRatios)
+const ASPECT_RATIOS = new Set(aspectRatios)
 
-export const GENERATION_VERSION_COUNTS = new Set(generationVersionCounts)
+const GENERATION_VERSION_COUNTS = new Set(generationVersionCounts)
 
 export const imageTitleMaxLength = framebookImageTitleMaxLength
 

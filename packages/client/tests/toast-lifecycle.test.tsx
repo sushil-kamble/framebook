@@ -175,6 +175,109 @@ describe("toast lifecycle", () => {
     })
   })
 
+  it("submits prompt-level reference overrides and resets the next prompt", async () => {
+    const topicWithReferences: TopicSummary = {
+      ...topicSummary,
+      referenceImages: [
+        {
+          id: "topic-ref-1",
+          fileName: "references/topic/topic-ref-1.png",
+          originalName: "subject.png",
+          mimeType: "image/png",
+          sizeBytes: 123,
+          width: 16,
+          height: 16,
+          createdAt: "2026-05-04T10:00:00.000Z",
+        },
+        {
+          id: "topic-ref-2",
+          fileName: "references/topic/topic-ref-2.png",
+          originalName: "style.png",
+          mimeType: "image/png",
+          sizeBytes: 456,
+          width: 20,
+          height: 20,
+          createdAt: "2026-05-04T10:00:00.000Z",
+        },
+      ],
+    }
+    const promptReference = new File(["png"], "pose.png", {
+      type: "image/png",
+    })
+    mocks.framebookApi.listTopics.mockResolvedValue({
+      topics: [topicWithReferences],
+    })
+
+    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
+
+    expect(await screen.findByRole("img", { name: "subject.png" })).toBeTruthy()
+    expect(screen.getByRole("img", { name: "style.png" })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove subject.png" }))
+    fireEvent.drop(screen.getByTestId("topic-workspace-dropzone"), {
+      dataTransfer: referenceImageDataTransfer(promptReference),
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "pose.png" })).toBeTruthy()
+    })
+    fireEvent.change(
+      screen.getByPlaceholderText("Describe the image you want to create..."),
+      { target: { value: "A mountain railway poster" } }
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    await waitFor(() => {
+      expect(mocks.framebookApi.createGeneration).toHaveBeenCalledWith(
+        topicSummary.id,
+        expect.objectContaining({
+          rawPrompt: "A mountain railway poster",
+          topicReferenceImageIds: ["topic-ref-2"],
+        }),
+        [promptReference]
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "subject.png" })).toBeTruthy()
+      expect(screen.queryByRole("img", { name: "pose.png" })).toBeNull()
+    })
+  })
+
+  it("shows the total reference cap when prompt uploads exceed remaining slots", async () => {
+    const topicWithReferences: TopicSummary = {
+      ...topicSummary,
+      referenceImages: Array.from({ length: 9 }, (_, index) => ({
+        id: `topic-ref-${index}`,
+        fileName: `references/topic/topic-ref-${index}.png`,
+        originalName: `topic-${index}.png`,
+        mimeType: "image/png",
+        sizeBytes: 123,
+        width: 16,
+        height: 16,
+        createdAt: "2026-05-04T10:00:00.000Z",
+      })),
+    }
+    mocks.framebookApi.listTopics.mockResolvedValue({
+      topics: [topicWithReferences],
+    })
+
+    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
+
+    expect(await screen.findByRole("img", { name: "topic-0.png" })).toBeTruthy()
+    fireEvent.drop(screen.getByTestId("topic-workspace-dropzone"), {
+      dataTransfer: referenceImageDataTransfer([
+        new File(["png"], "pose-a.png", { type: "image/png" }),
+        new File(["png"], "pose-b.png", { type: "image/png" }),
+      ]),
+    })
+
+    await waitFor(() => {
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "You can attach up to 10 images"
+      )
+    })
+  })
+
   it("shows generation loading UI before the create generation request resolves", async () => {
     let resolveGeneration: (value: { job: GenerationJob }) => void = () => {}
     mocks.framebookApi.createGeneration.mockReturnValue(
@@ -254,46 +357,6 @@ describe("toast lifecycle", () => {
     })
   })
 
-  it("sends attached reference images only with generation requests", async () => {
-    const referenceImage = new File(["png"], "subject.png", {
-      type: "image/png",
-    })
-    render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
-
-    fireEvent.change(
-      await screen.findByPlaceholderText(
-        "Describe the image you want to create..."
-      ),
-      { target: { value: "Change the t-shirt color" } }
-    )
-    fireEvent.change(document.querySelector('input[type="file"]')!, {
-      target: { files: [referenceImage] },
-    })
-
-    await screen.findByRole("img", { name: "Reference subject.png" })
-    fireEvent.click(screen.getByRole("button", { name: "Enhance prompt" }))
-
-    await waitFor(() => {
-      expect(mocks.framebookApi.enhancePrompt).toHaveBeenCalledWith(
-        topicSummary.id,
-        { rawPrompt: "Change the t-shirt color" }
-      )
-    })
-
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
-
-    await waitFor(() => {
-      expect(mocks.framebookApi.createGeneration).toHaveBeenCalledWith(
-        topicSummary.id,
-        expect.objectContaining({
-          rawPrompt: "Change the t-shirt color",
-          enhancedPrompt: "A refined prompt",
-        }),
-        [referenceImage]
-      )
-    })
-  })
-
   it("dismisses the prompt enhancement loading toast before showing success", async () => {
     render(<FramebookApp routeScreen="topic" routeTopicId={topicSummary.id} />)
 
@@ -324,11 +387,9 @@ describe("toast lifecycle", () => {
 const topicSummary: TopicSummary = {
   id: "topic-1",
   name: "Travel Posters",
-  description: "Poster studies.",
-  instruction: "Use vintage travel poster style.",
   defaultAspectRatio: "4:3",
-  basePromptDetails: "Mountain railway",
-  creativeModeId: "blue-pin-poster",
+  basePrompt: "Mountain railway",
+  referenceImages: [],
   archivedAt: null,
   createdAt: "2026-05-04T10:00:00.000Z",
   updatedAt: "2026-05-04T10:00:00.000Z",
@@ -343,7 +404,6 @@ const secondTopicSummary: TopicSummary = {
   id: "topic-2",
   name: "Icon Studies",
   defaultAspectRatio: "1:1",
-  creativeModeId: "icon-design",
 }
 
 const queuedGenerationJob: GenerationJob = {
@@ -355,7 +415,6 @@ const queuedGenerationJob: GenerationJob = {
   enhancedPrompt: "",
   finalPrompt: "A mountain railway poster",
   aspectRatio: "4:3",
-  creativeModeId: "blue-pin-poster",
   referenceImages: [],
   imageId: null,
   error: null,
@@ -393,4 +452,18 @@ const thirdSucceededGenerationJob: GenerationJob = {
   ...thirdQueuedGenerationJob,
   status: "succeeded",
   imageId: "image-3",
+}
+
+function referenceImageDataTransfer(fileOrFiles: File | Array<File>) {
+  const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles]
+
+  return {
+    files,
+    items: files.map((file) => ({
+      kind: "file",
+      type: file.type,
+      getAsFile: () => file,
+    })),
+    types: ["Files"],
+  }
 }

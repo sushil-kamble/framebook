@@ -8,15 +8,14 @@ import {
   sendNoContent,
 } from "#infra/http/http.mjs"
 import { createFramebookService } from "#domains/framebook/service.mjs"
+import {
+  maxReferenceImageBytes,
+  maxReferenceImages,
+  referenceImageMaxSizeLabel,
+  referenceImageMimeTypes,
+} from "#domains/framebook/constants.mjs"
 
 let framebookService
-const maxReferenceImages = 5
-const maxReferenceImageBytes = 10 * 1024 * 1024
-const referenceImageMimeTypes = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-])
 
 export async function routeRequest(request, response) {
   const url = new URL(request.url ?? "/", "http://127.0.0.1")
@@ -96,6 +95,54 @@ export async function routeRequest(request, response) {
       return
     }
 
+    const topicReferenceImagesMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/reference-images$/u
+    )
+    if (topicReferenceImagesMatch && request.method === "POST") {
+      if (!isMultipartRequest(request)) {
+        throw badRequest("Reference image uploads must use multipart form data")
+      }
+
+      const topic = await getFramebookService().addTopicReferenceImages(
+        decodeURIComponent(topicReferenceImagesMatch[1]),
+        await readReferenceImagesMultipartBody(request)
+      )
+      sendJson(response, 201, {
+        topic,
+        referenceImages: topic.referenceImages,
+      })
+      return
+    }
+
+    const topicReferenceImageMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/reference-images\/([^/]+)$/u
+    )
+    if (topicReferenceImageMatch && request.method === "DELETE") {
+      const topic = await getFramebookService().deleteTopicReferenceImage(
+        decodeURIComponent(topicReferenceImageMatch[1]),
+        decodeURIComponent(topicReferenceImageMatch[2])
+      )
+      sendJson(response, 200, {
+        topic,
+        referenceImages: topic.referenceImages,
+      })
+      return
+    }
+
+    const topicReferenceFileMatch = pathname.match(
+      /^\/api\/topics\/([^/]+)\/reference-images\/([^/]+)\/file$/u
+    )
+    if (topicReferenceFileMatch && request.method === "GET") {
+      const { filePath, mimeType } =
+        await getFramebookService().getTopicReferenceImageFile(
+          decodeURIComponent(topicReferenceFileMatch[1]),
+          decodeURIComponent(topicReferenceFileMatch[2])
+        )
+      response.writeHead(200, { ...corsHeaders(), "content-type": mimeType })
+      createReadStream(filePath).pipe(response)
+      return
+    }
+
     const topicImagesMatch = pathname.match(/^\/api\/topics\/([^/]+)\/images$/u)
     if (topicImagesMatch && request.method === "GET") {
       const images = await getFramebookService().listImages(
@@ -133,12 +180,11 @@ export async function routeRequest(request, response) {
       /^\/api\/topics\/([^/]+)\/generations$/u
     )
     if (generationMatch && request.method === "POST") {
-      const generationInput = isMultipartRequest(request)
-        ? await readGenerationMultipartBody(request)
-        : await readJsonBody(request)
       const generation = await getFramebookService().createGeneration(
         decodeURIComponent(generationMatch[1]),
-        generationInput
+        isMultipartRequest(request)
+          ? await readGenerationMultipartBody(request)
+          : await readJsonBody(request)
       )
       sendJson(response, 202, {
         job: generation,
@@ -297,10 +343,41 @@ function isMultipartRequest(request) {
     .startsWith("multipart/form-data")
 }
 
+async function readReferenceImagesMultipartBody(request) {
+  const { referenceImages } = await readMultipartReferenceImagesBody(request, {
+    allowPayload: false,
+  })
+  return referenceImages
+}
+
 async function readGenerationMultipartBody(request) {
+  const { payload, referenceImages } = await readMultipartReferenceImagesBody(
+    request,
+    { allowPayload: true }
+  )
+
+  if (!payload) {
+    throw badRequest("Generation multipart requests require a payload field")
+  }
+
+  let input
+  try {
+    input = JSON.parse(payload)
+  } catch (error) {
+    throw badRequest(`Invalid generation payload: ${errorMessage(error)}`)
+  }
+
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw badRequest("Generation payload must be a JSON object")
+  }
+
+  return { ...input, referenceImages }
+}
+
+async function readMultipartReferenceImagesBody(request, { allowPayload }) {
   return new Promise((resolve, reject) => {
-    const fields = {}
     const referenceImages = []
+    let payload = null
     let parser
     let parserError = null
 
@@ -318,17 +395,17 @@ async function readGenerationMultipartBody(request) {
     }
 
     parser.on("field", (name, value) => {
-      if (
-        name === "rawPrompt" ||
-        name === "enhancedPrompt" ||
-        name === "title" ||
-        name === "aspectRatio" ||
-        name === "versionCount" ||
-        name === "creativeModeId" ||
-        name === "contextMode"
-      ) {
-        fields[name] = value
+      if (allowPayload && name === "payload") {
+        if (payload !== null) {
+          parserError ??= badRequest("Generation payload field is duplicated")
+          return
+        }
+
+        payload = value
+        return
       }
+
+      parserError ??= badRequest(`Unexpected field ${name}`)
     })
 
     parser.on("file", (name, file, info) => {
@@ -366,7 +443,9 @@ async function readGenerationMultipartBody(request) {
       })
 
       file.on("limit", () => {
-        parserError ??= badRequest("Reference image must be 10 MB or smaller")
+        parserError ??= badRequest(
+          `Reference image must be ${referenceImageMaxSizeLabel} or smaller`
+        )
       })
 
       file.on("error", (error) => {
@@ -375,7 +454,9 @@ async function readGenerationMultipartBody(request) {
 
       file.on("end", () => {
         if (sizeBytes > maxReferenceImageBytes) {
-          parserError ??= badRequest("Reference image must be 10 MB or smaller")
+          parserError ??= badRequest(
+            `Reference image must be ${referenceImageMaxSizeLabel} or smaller`
+          )
           return
         }
 
@@ -398,7 +479,7 @@ async function readGenerationMultipartBody(request) {
         return
       }
 
-      resolve({ ...fields, referenceImages })
+      resolve({ payload, referenceImages })
     })
 
     request.pipe(parser)

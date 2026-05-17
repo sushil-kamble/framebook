@@ -126,9 +126,6 @@ export function ImageDetailPage(props: {
           />
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <MetaItem label="Topic" value={image.topicSnapshot.name} />
-            {image.creativeMode.id ? (
-              <MetaItem label="Creative mode" value={image.creativeMode.name} />
-            ) : null}
             <MetaItem label="Prompt source" value={promptSource} />
             <MetaItem label="Aspect ratio" value={image.aspectRatio} />
             <MetaItem label="Created" value={formatDate(image.createdAt)} />

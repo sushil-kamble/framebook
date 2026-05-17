@@ -8,51 +8,7 @@ export type GenerationVersionCount = (typeof generationVersionCounts)[number]
 
 export type GenerationJobStatus = "queued" | "running" | "succeeded" | "failed"
 
-export interface CreativeModeSnapshot {
-  id: string
-  name: string
-  basePromptDetails: string
-  creativeDirection: string
-}
-
-export interface Topic {
-  id: string
-  name: string
-  description: string
-  instruction: string
-  defaultAspectRatio: AspectRatio
-  basePromptDetails: string
-  creativeModeId: string
-  archivedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export interface TopicSummary extends Topic {
-  imageCount: number
-  favoriteCount: number
-  latestImageId: string | null
-  latestImageCreatedAt: string | null
-}
-
-export interface TopicSnapshot {
-  id: string
-  name: string
-  description: string
-  instruction: string
-  defaultAspectRatio: AspectRatio
-  basePromptDetails: string
-  creativeModeId: string
-}
-
-export interface ImageVariant {
-  width: number
-  height: number
-  fileName: string
-  mimeType: "image/webp"
-}
-
-export interface GenerationReferenceImage {
+export interface ReferenceImage {
   id: string
   fileName: string
   originalName: string
@@ -61,6 +17,35 @@ export interface GenerationReferenceImage {
   width?: number
   height?: number
   createdAt: string
+}
+
+export interface Topic {
+  id: string
+  name: string
+  defaultAspectRatio: AspectRatio
+  basePrompt: string
+  referenceImages: Array<ReferenceImage>
+  archivedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TopicCounts {
+  imageCount: number
+  favoriteCount: number
+  latestImageId: string | null
+  latestImageCreatedAt: string | null
+}
+
+export interface TopicSummary extends Topic, TopicCounts {}
+
+export interface TopicSnapshot extends Topic, TopicCounts {}
+
+export interface ImageVariant {
+  width: number
+  height: number
+  fileName: string
+  mimeType: "image/webp"
 }
 
 export interface ImageRecord {
@@ -72,9 +57,9 @@ export interface ImageRecord {
   enhancedPrompt: string
   finalPrompt: string
   imageGenerationPrompt: string
+  researchContext?: string
   aspectRatio: AspectRatio
   topicSnapshot: TopicSnapshot
-  creativeMode: CreativeModeSnapshot
   favorite: boolean
   archivedAt: string | null
   fileName: string
@@ -83,7 +68,7 @@ export interface ImageRecord {
   height?: number
   placeholderColor?: string
   variants?: Array<ImageVariant>
-  referenceImages: Array<GenerationReferenceImage>
+  referenceImages: Array<ReferenceImage>
   createdAt: string
 }
 
@@ -95,9 +80,9 @@ export interface GenerationJob {
   rawPrompt: string
   enhancedPrompt: string
   finalPrompt: string
+  researchContext?: string
   aspectRatio: AspectRatio
-  creativeModeId: string
-  referenceImages: Array<GenerationReferenceImage>
+  referenceImages: Array<ReferenceImage>
   imageId: string | null
   error: string | null
   batchId?: string
@@ -109,11 +94,8 @@ export interface GenerationJob {
 
 export interface CreateTopicRequest {
   name: string
-  description?: string
-  instruction?: string
   defaultAspectRatio?: AspectRatio
-  basePromptDetails?: string
-  creativeModeId?: string
+  basePrompt?: string
 }
 
 export type UpdateTopicRequest = Partial<CreateTopicRequest>
@@ -124,6 +106,11 @@ export interface TopicListResponse {
 
 export interface TopicResponse {
   topic: TopicSummary
+}
+
+export interface TopicReferenceImagesResponse {
+  topic: TopicSummary
+  referenceImages: Array<ReferenceImage>
 }
 
 export interface ImageListResponse {
@@ -158,8 +145,8 @@ export interface CreateGenerationRequest {
   title?: string
   aspectRatio?: AspectRatio
   versionCount?: GenerationVersionCount
-  creativeModeId?: string
   contextMode?: ResearchContextMode
+  topicReferenceImageIds?: Array<string>
 }
 
 export interface CreateGenerationResponse {

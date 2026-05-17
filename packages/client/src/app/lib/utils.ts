@@ -84,6 +84,12 @@ export function imageReferenceUrl(imageId: string, referenceId: string) {
   )
 }
 
+export function topicReferenceImageUrl(topicId: string, referenceId: string) {
+  return framebookApiUrl(
+    `/api/topics/${encodeURIComponent(topicId)}/reference-images/${encodeURIComponent(referenceId)}/file`
+  )
+}
+
 export function imageVariantUrl(imageId: string, width: number) {
   return framebookApiUrl(
     `/api/images/${encodeURIComponent(imageId)}/variants/${width}`

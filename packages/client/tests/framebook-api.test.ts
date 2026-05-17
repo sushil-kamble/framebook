@@ -17,11 +17,8 @@ describe("framebook api client", () => {
 
     await api.createTopic({
       name: "Travel Poster Study",
-      description: "",
-      instruction: "Make vintage travel posters.",
       defaultAspectRatio: "16:9",
-      basePromptDetails: "",
-      creativeModeId: "blue-pin-poster",
+      basePrompt: "Make vintage travel posters.",
     })
 
     expect(fetcher).toHaveBeenCalledWith(
@@ -209,7 +206,7 @@ describe("framebook api client", () => {
     )
   })
 
-  it("can send the selected creative mode when creating a generation", async () => {
+  it("sends selected topic reference image ids in JSON generations", async () => {
     const fetcher = vi.fn(() =>
       Promise.resolve(Response.json({ job: { id: "job-1" }, jobs: [] }))
     ) as unknown as typeof fetch
@@ -217,7 +214,7 @@ describe("framebook api client", () => {
 
     await api.createGeneration("topic-1", {
       rawPrompt: "A rainy hill station market at dusk",
-      creativeModeId: "nighttime",
+      topicReferenceImageIds: ["topic-ref-1"],
     })
 
     expect(fetcher).toHaveBeenCalledWith(
@@ -226,10 +223,71 @@ describe("framebook api client", () => {
         method: "POST",
         body: JSON.stringify({
           rawPrompt: "A rainy hill station market at dusk",
-          creativeModeId: "nighttime",
+          topicReferenceImageIds: ["topic-ref-1"],
         }),
       })
     )
+  })
+
+  it("sends an explicit empty topic reference image list", async () => {
+    const fetcher = vi.fn(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" }, jobs: [] }))
+    ) as unknown as typeof fetch
+    const api = createFramebookApi(fetcher)
+
+    await api.createGeneration("topic-1", {
+      rawPrompt: "A rainy hill station market at dusk",
+      topicReferenceImageIds: [],
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1/generations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          rawPrompt: "A rainy hill station market at dusk",
+          topicReferenceImageIds: [],
+        }),
+      })
+    )
+  })
+
+  it("sends prompt-only reference images as generation multipart data", async () => {
+    const fetcher = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ job: { id: "job-1" }, jobs: [] }))
+    )
+    const api = createFramebookApi(fetcher)
+    const referenceImage = new File(["png"], "prompt-reference.png", {
+      type: "image/png",
+    })
+
+    await api.createGeneration(
+      "topic-1",
+      {
+        rawPrompt: "A rainy hill station market at dusk",
+        topicReferenceImageIds: ["topic-ref-1"],
+      },
+      [referenceImage]
+    )
+
+    const init = fetcher.mock.calls[0]?.[1] as RequestInit
+    const formData = init.body as FormData
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic-1/generations",
+      expect.objectContaining({
+        method: "POST",
+      })
+    )
+    expect(formData).toBeInstanceOf(FormData)
+    expect(init.headers).not.toHaveProperty("content-type")
+    expect(JSON.parse(String(formData.get("payload")))).toEqual({
+      rawPrompt: "A rainy hill station market at dusk",
+      topicReferenceImageIds: ["topic-ref-1"],
+    })
+    const uploadedReference = formData.get("referenceImages") as File
+    expect(uploadedReference.name).toBe(referenceImage.name)
+    expect(uploadedReference.type).toBe(referenceImage.type)
   })
 
   it("can send the research context mode when creating a generation", async () => {
@@ -255,7 +313,7 @@ describe("framebook api client", () => {
     )
   })
 
-  it("can send an explicit empty creative mode when updating a topic", async () => {
+  it("can update a topic base prompt", async () => {
     const fetcher = vi.fn(() =>
       Promise.resolve(Response.json({ topic: { id: "topic-1" } }))
     ) as unknown as typeof fetch
@@ -263,7 +321,7 @@ describe("framebook api client", () => {
 
     await api.updateTopic("topic-1", {
       name: "Plain Prompt",
-      creativeModeId: "",
+      basePrompt: "Keep the same visual system.",
     })
 
     expect(fetcher).toHaveBeenCalledWith(
@@ -272,48 +330,35 @@ describe("framebook api client", () => {
         method: "PATCH",
         body: JSON.stringify({
           name: "Plain Prompt",
-          creativeModeId: "",
+          basePrompt: "Keep the same visual system.",
         }),
       })
     )
   })
 
-  it("sends multipart form data when creating a generation with reference images", async () => {
+  it("uploads topic reference images with multipart form data", async () => {
     const fetcher = vi.fn<typeof fetch>(() =>
-      Promise.resolve(Response.json({ job: { id: "job-1" } }))
+      Promise.resolve(
+        Response.json({ topic: { id: "topic-1" }, referenceImages: [] })
+      )
     )
     const api = createFramebookApi(fetcher)
     const referenceImage = new File(["png"], "reference.png", {
       type: "image/png",
     })
 
-    await api.createGeneration(
-      "topic-1",
-      {
-        rawPrompt: "Change the t-shirt color",
-        enhancedPrompt: "Change only the t-shirt color.",
-        aspectRatio: "4:3",
-        creativeModeId: "headshot",
-        contextMode: "web",
-      },
-      [referenceImage]
-    )
+    await api.addTopicReferenceImages("topic-1", [referenceImage])
 
     const init = fetcher.mock.calls[0]?.[1] as RequestInit
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/topics/topic-1/generations",
+      "/api/topics/topic-1/reference-images",
       expect.objectContaining({
         method: "POST",
       })
     )
     expect(init.body).toBeInstanceOf(FormData)
     expect(init.headers).not.toHaveProperty("content-type")
-    expect((init.body as FormData).get("rawPrompt")).toBe(
-      "Change the t-shirt color"
-    )
-    expect((init.body as FormData).get("creativeModeId")).toBe("headshot")
-    expect((init.body as FormData).get("contextMode")).toBe("web")
     const uploadedReference = (init.body as FormData).get(
       "referenceImages"
     ) as File
@@ -321,28 +366,21 @@ describe("framebook api client", () => {
     expect(uploadedReference.type).toBe(referenceImage.type)
   })
 
-  it("preserves an explicit empty creative mode in multipart generation requests", async () => {
+  it("deletes topic reference images through the expected endpoint", async () => {
     const fetcher = vi.fn<typeof fetch>(() =>
-      Promise.resolve(Response.json({ job: { id: "job-1" } }))
+      Promise.resolve(
+        Response.json({ topic: { id: "topic-1" }, referenceImages: [] })
+      )
     )
     const api = createFramebookApi(fetcher)
-    const referenceImage = new File(["png"], "reference.png", {
-      type: "image/png",
-    })
 
-    await api.createGeneration(
-      "topic-1",
-      {
-        rawPrompt: "A quiet desk",
-        creativeModeId: "",
-      },
-      [referenceImage]
+    await api.deleteTopicReferenceImage("topic/with slash", "ref/with slash")
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/topics/topic%2Fwith%20slash/reference-images/ref%2Fwith%20slash",
+      expect.objectContaining({
+        method: "DELETE",
+      })
     )
-
-    const init = fetcher.mock.calls[0]?.[1] as RequestInit
-
-    expect(init.body).toBeInstanceOf(FormData)
-    expect((init.body as FormData).has("creativeModeId")).toBe(true)
-    expect((init.body as FormData).get("creativeModeId")).toBe("")
   })
 })

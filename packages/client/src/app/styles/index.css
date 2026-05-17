@@ -339,7 +339,7 @@
 @layer components {
   .framebook-page-stage {
     view-transition-name: framebook-page;
-    contain: layout style paint;
+    contain: layout style;
   }
 
   ::view-transition-old(root),
@@ -436,8 +436,7 @@
 
   .sidebar-topic-btn-active {
     background: color-mix(in srgb, var(--ring) 9%, transparent);
-    box-shadow: inset 0 0 0 1px
-      color-mix(in srgb, var(--ring) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ring) 18%, transparent);
   }
 
   .sidebar-show-more {
@@ -545,13 +544,23 @@
   }
 
   .topic-editor-stage {
-    background: url("/assets/topic-form-doodle-light.png") center / cover
-      no-repeat;
+    isolation: isolate;
   }
 
-  html.dark .topic-editor-stage {
-    background: url("/assets/topic-form-doodle-dark.png") center / cover
-      no-repeat;
+  .topic-editor-stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-image: url("/assets/topic-form-doodle-light.png");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    pointer-events: none;
+  }
+
+  html.dark .topic-editor-stage::before {
+    background-image: url("/assets/topic-form-doodle-dark.png");
   }
 
   .settings-stage {
@@ -564,6 +573,7 @@
   }
 
   .topic-editor-vignette {
+    z-index: 1;
     background:
       radial-gradient(
         ellipse at center,

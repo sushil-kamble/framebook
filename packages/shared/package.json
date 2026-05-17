@@ -8,11 +8,7 @@
       "types": "./src/config/framebook.ts",
       "import": "./src/config/framebook.mjs"
     },
-    "./contracts/framebook": "./src/contracts/framebook.ts",
-    "./creative-modes": {
-      "types": "./src/creative-modes/index.ts",
-      "import": "./src/creative-modes/index.mjs"
-    }
+    "./contracts/framebook": "./src/contracts/framebook.ts"
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",

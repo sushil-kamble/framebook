@@ -17,10 +17,6 @@ import {
   referenceImageMimeTypes,
 } from "./constants.mjs"
 import {
-  getCreativeMode,
-  isCreativeModeId,
-} from "@framebook/shared/creative-modes"
-import {
   createImageOptimizer,
   imageVariantMimeType,
   imageVariantWidths,
@@ -33,7 +29,7 @@ import {
   createCodexClient,
 } from "#infra/agent-clients/codex.mjs"
 
-export const defaultMaxParallelImageGenerations = 2
+const defaultMaxParallelImageGenerations = 2
 
 export function createFramebookService({
   store = createFramebookStore(),
@@ -78,13 +74,11 @@ export function createFramebookService({
     const topic = {
       id: store.createId(),
       name: requireText(input.name, "Topic name is required"),
-      description: optionalText(input.description),
-      instruction: optionalText(input.instruction),
       defaultAspectRatio: input.defaultAspectRatio
         ? requireAspectRatio(input.defaultAspectRatio)
         : "16:9",
-      basePromptDetails: optionalText(input.basePromptDetails),
-      creativeModeId: optionalCreativeModeId(input.creativeModeId),
+      basePrompt: optionalText(input.basePrompt),
+      referenceImages: [],
       archivedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -110,26 +104,14 @@ export function createFramebookService({
         input.name === undefined
           ? current.name
           : requireText(input.name, "Topic name is required"),
-      description:
-        input.description === undefined
-          ? current.description
-          : optionalText(input.description),
-      instruction:
-        input.instruction === undefined
-          ? current.instruction
-          : optionalText(input.instruction),
       defaultAspectRatio:
         input.defaultAspectRatio === undefined
           ? current.defaultAspectRatio
           : requireAspectRatio(input.defaultAspectRatio),
-      basePromptDetails:
-        input.basePromptDetails === undefined
-          ? current.basePromptDetails
-          : optionalText(input.basePromptDetails),
-      creativeModeId:
-        input.creativeModeId === undefined
-          ? normalizeOptionalCreativeModeId(current.creativeModeId)
-          : optionalCreativeModeId(input.creativeModeId),
+      basePrompt:
+        input.basePrompt === undefined
+          ? current.basePrompt
+          : optionalText(input.basePrompt),
       updatedAt: new Date().toISOString(),
     }
 
@@ -179,6 +161,109 @@ export function createFramebookService({
     return summarizeTopic(updated, images)
   }
 
+  async function addTopicReferenceImages(topicId, files) {
+    const topics = await store.listTopics()
+    const topicIndex = topics.findIndex((topic) => topic.id === topicId)
+
+    if (topicIndex === -1) {
+      throw notFound("Topic not found")
+    }
+
+    const current = normalizeTopic(topics[topicIndex])
+    const referenceFiles = Array.isArray(files) ? files : []
+
+    if (
+      current.referenceImages.length + referenceFiles.length >
+      maxReferenceImages
+    ) {
+      throw badRequest(`You can attach up to ${maxReferenceImages} images`)
+    }
+
+    const now = new Date().toISOString()
+    const referenceImages = await saveReferenceImages({
+      topic: current,
+      files: referenceFiles,
+      createdAt: now,
+    })
+    const updated = {
+      ...current,
+      referenceImages: [...current.referenceImages, ...referenceImages],
+      updatedAt: now,
+    }
+
+    topics[topicIndex] = updated
+    await store.writeTopics(topics)
+    const images = await listImageRecords()
+    return summarizeTopic(updated, images)
+  }
+
+  async function deleteTopicReferenceImage(topicId, referenceId) {
+    const topics = await store.listTopics()
+    const topicIndex = topics.findIndex((topic) => topic.id === topicId)
+
+    if (topicIndex === -1) {
+      throw notFound("Topic not found")
+    }
+
+    const current = normalizeTopic(topics[topicIndex])
+    const referenceImage = current.referenceImages.find(
+      (reference) => reference.id === referenceId
+    )
+
+    if (!referenceImage) {
+      throw notFound("Reference image not found")
+    }
+
+    const now = new Date().toISOString()
+    const updated = {
+      ...current,
+      referenceImages: current.referenceImages.filter(
+        (reference) => reference.id !== referenceId
+      ),
+      updatedAt: now,
+    }
+
+    topics[topicIndex] = updated
+    await store.writeTopics(topics)
+
+    if (!(await isReferenceImageInUse(topicId, referenceImage.fileName))) {
+      await removeAssetFile(
+        store.getTopicAssetDir(topicId),
+        referenceImage.fileName
+      )
+    }
+
+    const images = await listImageRecords()
+    return summarizeTopic(updated, images)
+  }
+
+  async function getTopicReferenceImageFile(topicId, referenceId) {
+    const topic = await ensureTopic(topicId)
+    const referenceImage = topic.referenceImages.find(
+      (reference) => reference.id === referenceId
+    )
+
+    if (!referenceImage) {
+      throw notFound("Reference image not found")
+    }
+
+    const filePath = path.join(
+      store.getTopicAssetDir(topic.id),
+      referenceImage.fileName
+    )
+
+    if (!(await fileExists(filePath))) {
+      throw notFound("Reference image file not found")
+    }
+
+    return {
+      filePath,
+      mimeType: referenceImage.mimeType,
+      referenceImage,
+      topic,
+    }
+  }
+
   async function listImages(topicId, { favoriteOnly = false } = {}) {
     await ensureTopic(topicId)
     const images = await listImagesWithOptimization(
@@ -224,9 +309,6 @@ export function createFramebookService({
   async function addImageRecord(input) {
     const topic = await ensureTopic(input.topicId)
     const now = new Date().toISOString()
-    const creativeModeId = normalizeOptionalCreativeModeId(
-      input.creativeModeId || topic.creativeModeId
-    )
     const record = {
       id: input.id || store.createId(),
       topicId: topic.id,
@@ -239,9 +321,9 @@ export function createFramebookService({
         "Enhanced prompt is required"
       ),
       finalPrompt: requireText(input.finalPrompt, "Final prompt is required"),
+      researchContext: optionalText(input.researchContext),
       aspectRatio: requireAspectRatio(input.aspectRatio),
       topicSnapshot: snapshotTopic(topic),
-      creativeMode: snapshotCreativeMode(creativeModeId),
       favorite: Boolean(input.favorite),
       archivedAt: input.archivedAt ?? null,
       fileName: requireText(input.fileName, "Image file name is required"),
@@ -424,15 +506,26 @@ export function createFramebookService({
     const versionCount = requireGenerationVersionCount(input.versionCount)
     const enhancedPrompt = optionalText(input.enhancedPrompt) || rawPrompt
     const contextMode = requireResearchContextMode(input.contextMode)
+    const topicReferenceImages = resolveTopicReferenceImages(
+      topic,
+      input.topicReferenceImageIds
+    )
+    const promptReferenceFiles = Array.isArray(input.referenceImages)
+      ? input.referenceImages
+      : []
+
+    if (
+      topicReferenceImages.length + promptReferenceFiles.length >
+      maxReferenceImages
+    ) {
+      throw badRequest(`You can attach up to ${maxReferenceImages} images`)
+    }
+
     const researchContext = await resolveResearchContext({
       mode: contextMode,
       topic,
       rawPrompt,
       enhancedPrompt,
-    })
-    const creativeModeId = resolveGenerationCreativeModeId({
-      topic,
-      inputCreativeModeId: input.creativeModeId,
     })
     const title =
       versionCount > 1
@@ -450,20 +543,24 @@ export function createFramebookService({
     const now = new Date().toISOString()
     const finalPrompt = buildFinalPrompt({
       enhancedPrompt,
-      researchContext,
-      aspectRatio,
-      creativeMode: getCreativeMode(creativeModeId) ?? null,
     })
     const createdJobs = []
+    const preparedReferenceFiles = []
 
     for (let index = 0; index < versionCount; index += 1) {
       const jobId = store.createId()
-      const referenceImages = await saveReferenceImages({
+      const promptReferences = await prepareReferenceImages({
         topic,
-        jobId,
-        files: input.referenceImages,
+        files: promptReferenceFiles,
         createdAt: now,
+        directorySegments: ["jobs", jobId],
       })
+      const referenceImages = [
+        ...topicReferenceImages,
+        ...promptReferences.map((reference) => reference.referenceImage),
+      ]
+
+      preparedReferenceFiles.push(...promptReferences)
 
       createdJobs.push({
         id: jobId,
@@ -473,8 +570,8 @@ export function createFramebookService({
         rawPrompt,
         enhancedPrompt,
         finalPrompt,
+        researchContext,
         aspectRatio,
-        creativeModeId,
         referenceImages,
         imageId: null,
         error: null,
@@ -485,6 +582,8 @@ export function createFramebookService({
         updatedAt: now,
       })
     }
+
+    await writePreparedReferenceImages(preparedReferenceFiles)
 
     await withMetadataWriteLock(async () => {
       const jobs = await store.listJobs()
@@ -582,6 +681,7 @@ export function createFramebookService({
         prompt: job.finalPrompt,
         aspectRatio: job.aspectRatio,
         topic,
+        researchContext: job.researchContext,
         referenceImages: referenceImagesWithPaths(
           topic.id,
           job.referenceImages
@@ -596,8 +696,8 @@ export function createFramebookService({
         rawPrompt: job.rawPrompt,
         enhancedPrompt: job.enhancedPrompt,
         finalPrompt: job.finalPrompt,
+        researchContext: job.researchContext,
         aspectRatio: job.aspectRatio,
-        creativeModeId: job.creativeModeId,
         referenceImages: job.referenceImages,
         fileName: generated.fileName,
         mimeType: generated.mimeType,
@@ -688,12 +788,7 @@ export function createFramebookService({
   }
 
   async function listImageRecords() {
-    const [images, topics] = await Promise.all([
-      store.listImages(),
-      store.listTopics(),
-    ])
-    const topicsById = new Map(topics.map((topic) => [topic.id, topic]))
-
+    const images = await store.listImages()
     return images.map(normalizeImageRecord).map((image) =>
       image.imageGenerationPrompt
         ? image
@@ -701,7 +796,7 @@ export function createFramebookService({
             ...image,
             imageGenerationPrompt: buildStoredImageGenerationPrompt(
               image,
-              topicForImagePrompt(image, topicsById)
+              topicForImagePrompt(image)
             ),
           }
     )
@@ -839,9 +934,25 @@ export function createFramebookService({
 
   async function saveReferenceImages({
     topic,
-    jobId,
     files,
     createdAt = new Date().toISOString(),
+  }) {
+    const preparedReferences = await prepareReferenceImages({
+      topic,
+      files,
+      createdAt,
+      directorySegments: ["topic"],
+    })
+
+    await writePreparedReferenceImages(preparedReferences)
+    return preparedReferences.map((reference) => reference.referenceImage)
+  }
+
+  async function prepareReferenceImages({
+    topic,
+    files,
+    createdAt = new Date().toISOString(),
+    directorySegments,
   }) {
     const referenceFiles = Array.isArray(files) ? files : []
 
@@ -849,7 +960,7 @@ export function createFramebookService({
       throw badRequest(`You can attach up to ${maxReferenceImages} images`)
     }
 
-    const referenceImages = []
+    const preparedReferences = []
 
     for (const file of referenceFiles) {
       const mimeType = requireReferenceImageMimeType(file?.mimeType)
@@ -867,27 +978,67 @@ export function createFramebookService({
       const id = store.createId()
       const fileName = [
         referenceDirName,
-        safeReferenceSegment(jobId),
+        ...directorySegments.map((segment) => safeReferenceSegment(segment)),
         `${safeReferenceSegment(id)}${referenceImageExtensions[mimeType]}`,
       ].join("/")
       const targetPath = path.join(store.getTopicAssetDir(topic.id), fileName)
       const dimensions = await readReferenceImageDimensions(buffer)
 
-      await mkdir(path.dirname(targetPath), { recursive: true })
-      await writeFile(targetPath, buffer)
-
-      referenceImages.push({
-        id,
-        fileName,
-        originalName: normalizeOriginalFileName(file?.originalName),
-        mimeType,
-        sizeBytes,
-        ...dimensions,
-        createdAt,
+      preparedReferences.push({
+        targetPath,
+        buffer,
+        referenceImage: {
+          id,
+          fileName,
+          originalName: normalizeOriginalFileName(file?.originalName),
+          mimeType,
+          sizeBytes,
+          ...dimensions,
+          createdAt,
+        },
       })
     }
 
-    return referenceImages
+    return preparedReferences
+  }
+
+  async function writePreparedReferenceImages(preparedReferences) {
+    for (const reference of preparedReferences) {
+      await mkdir(path.dirname(reference.targetPath), { recursive: true })
+      await writeFile(reference.targetPath, reference.buffer)
+    }
+  }
+
+  async function isReferenceImageInUse(topicId, fileName) {
+    const [topics, images, jobs] = await Promise.all([
+      store.listTopics(),
+      listImageRecords(),
+      store.listJobs(),
+    ])
+
+    return (
+      topics
+        .filter((topic) => topic.id === topicId)
+        .some((topic) =>
+          normalizeReferenceImages(topic.referenceImages).some(
+            (reference) => reference.fileName === fileName
+          )
+        ) ||
+      images
+        .filter((image) => image.topicId === topicId)
+        .some((image) =>
+          normalizeReferenceImages(image.referenceImages).some(
+            (reference) => reference.fileName === fileName
+          )
+        ) ||
+      jobs
+        .filter((job) => job.topicId === topicId)
+        .some((job) =>
+          normalizeReferenceImages(job.referenceImages).some(
+            (reference) => reference.fileName === fileName
+          )
+        )
+    )
   }
 
   function referenceImagesWithPaths(topicId, referenceImages) {
@@ -905,6 +1056,7 @@ export function createFramebookService({
       prompt: image.finalPrompt,
       aspectRatio: image.aspectRatio,
       topic,
+      researchContext: image.researchContext,
       referenceImages: referenceImagesWithPaths(
         image.topicId,
         image.referenceImages
@@ -916,32 +1068,8 @@ export function createFramebookService({
     })
   }
 
-  function topicForImagePrompt(image, topicsById) {
-    const snapshot = image.topicSnapshot ?? {}
-    const current = topicsById.get(image.topicId)
-
-    return normalizeTopic({
-      id: image.topicId,
-      name: optionalText(snapshot.name) || optionalText(current?.name),
-      description:
-        optionalText(snapshot.description) ||
-        optionalText(current?.description),
-      instruction:
-        optionalText(snapshot.instruction) ||
-        optionalText(current?.instruction),
-      defaultAspectRatio:
-        snapshot.defaultAspectRatio ||
-        current?.defaultAspectRatio ||
-        image.aspectRatio,
-      basePromptDetails:
-        optionalText(snapshot.basePromptDetails) ||
-        optionalText(current?.basePromptDetails),
-      creativeModeId:
-        snapshot.creativeModeId ||
-        current?.creativeModeId ||
-        image.creativeMode?.id ||
-        "",
-    })
+  function topicForImagePrompt(image) {
+    return normalizeTopic(image.topicSnapshot)
   }
 
   async function resolveEnhancedPrompt({ rawPrompt }) {
@@ -1052,6 +1180,8 @@ export function createFramebookService({
     updateTopic,
     archiveTopic,
     unarchiveTopic,
+    addTopicReferenceImages,
+    deleteTopicReferenceImage,
     listImages,
     listStarredImages,
     listArchivedImages,
@@ -1060,6 +1190,7 @@ export function createFramebookService({
     deleteImage,
     getImage,
     getImageFile,
+    getTopicReferenceImageFile,
     getReferenceImageFile,
     getImageVariantFile,
     enhanceTopicPrompt,
@@ -1126,24 +1257,13 @@ function errorMessage(error) {
 
 function normalizeImageRecord(image) {
   const topicSnapshot = image.topicSnapshot
-    ? {
-        ...image.topicSnapshot,
-        creativeModeId: normalizeOptionalCreativeModeId(
-          image.topicSnapshot.creativeModeId
-        ),
-      }
+    ? snapshotTopic(normalizeTopic(image.topicSnapshot))
     : image.topicSnapshot
-  const creativeMode = image.creativeMode
-    ? {
-        ...image.creativeMode,
-        id: normalizeOptionalCreativeModeId(image.creativeMode.id),
-      }
-    : snapshotCreativeMode(topicSnapshot?.creativeModeId)
 
   return {
     ...image,
     topicSnapshot,
-    creativeMode,
+    researchContext: optionalText(image.researchContext),
     referenceImages: normalizeReferenceImages(image.referenceImages),
   }
 }
@@ -1182,6 +1302,40 @@ function normalizeReferenceImages(value) {
       }
     })
     .filter(Boolean)
+}
+
+function resolveTopicReferenceImages(topic, topicReferenceImageIds) {
+  const referenceImages = normalizeReferenceImages(topic.referenceImages)
+
+  if (topicReferenceImageIds === undefined) {
+    return referenceImages
+  }
+
+  if (!Array.isArray(topicReferenceImageIds)) {
+    throw badRequest("topicReferenceImageIds must be an array")
+  }
+
+  const referencesById = new Map(
+    referenceImages.map((referenceImage) => [referenceImage.id, referenceImage])
+  )
+  const selectedReferenceImages = []
+  const selectedIds = new Set()
+
+  for (const value of topicReferenceImageIds) {
+    const id = optionalText(value)
+    const referenceImage = referencesById.get(id)
+
+    if (!id || !referenceImage) {
+      throw badRequest("Reference image does not belong to topic")
+    }
+
+    if (!selectedIds.has(id)) {
+      selectedIds.add(id)
+      selectedReferenceImages.push(referenceImage)
+    }
+  }
+
+  return selectedReferenceImages
 }
 
 function requireReferenceImageMimeType(value) {
@@ -1280,9 +1434,6 @@ async function deleteImageFiles(image, topicAssetDir) {
     ...(Array.isArray(image.variants)
       ? image.variants.map((variant) => variant.fileName)
       : []),
-    ...normalizeReferenceImages(image.referenceImages).map(
-      (referenceImage) => referenceImage.fileName
-    ),
   ])
 
   await Promise.all(
@@ -1344,7 +1495,7 @@ function normalizeGenerationJob(job) {
   return {
     ...job,
     title: normalizeImageTitle(job.title) || titleFromPrompt(job.rawPrompt),
-    creativeModeId: normalizeOptionalCreativeModeId(job.creativeModeId),
+    researchContext: optionalText(job.researchContext),
     referenceImages: normalizeReferenceImages(job.referenceImages),
   }
 }
@@ -1368,7 +1519,11 @@ function summarizeTopic(topic, images) {
 function normalizeTopic(topic) {
   return {
     ...topic,
-    creativeModeId: normalizeOptionalCreativeModeId(topic.creativeModeId),
+    name: optionalText(topic.name),
+    defaultAspectRatio: requireAspectRatio(topic.defaultAspectRatio),
+    basePrompt: optionalText(topic.basePrompt),
+    referenceImages: normalizeReferenceImages(topic.referenceImages),
+    archivedAt: topic.archivedAt ?? null,
   }
 }
 
@@ -1376,61 +1531,19 @@ function snapshotTopic(topic) {
   return {
     id: topic.id,
     name: topic.name,
-    description: topic.description,
-    instruction: topic.instruction,
     defaultAspectRatio: topic.defaultAspectRatio,
-    basePromptDetails: topic.basePromptDetails,
-    creativeModeId: normalizeOptionalCreativeModeId(topic.creativeModeId),
+    basePrompt: topic.basePrompt,
+    referenceImages: normalizeReferenceImages(topic.referenceImages),
+    archivedAt: topic.archivedAt ?? null,
+    createdAt: topic.createdAt,
+    updatedAt: topic.updatedAt,
+    imageCount: Number.isInteger(topic.imageCount) ? topic.imageCount : 0,
+    favoriteCount: Number.isInteger(topic.favoriteCount)
+      ? topic.favoriteCount
+      : 0,
+    latestImageId: topic.latestImageId ?? null,
+    latestImageCreatedAt: topic.latestImageCreatedAt ?? null,
   }
-}
-
-function snapshotCreativeMode(creativeModeId) {
-  const mode = getCreativeMode(creativeModeId)
-  if (!mode) {
-    return {
-      id: "",
-      name: "",
-      basePromptDetails: "",
-      creativeDirection: "",
-    }
-  }
-
-  return {
-    id: mode.id,
-    name: mode.name,
-    basePromptDetails: mode.basePromptDetails,
-    creativeDirection: mode.creativeDirection,
-  }
-}
-
-function normalizeOptionalCreativeModeId(value) {
-  return isCreativeModeId(value) ? value : ""
-}
-
-function resolveGenerationCreativeModeId({ topic, inputCreativeModeId }) {
-  if (inputCreativeModeId === undefined) {
-    return normalizeOptionalCreativeModeId(topic.creativeModeId)
-  }
-
-  return optionalCreativeModeId(inputCreativeModeId)
-}
-
-function optionalCreativeModeId(value) {
-  const id = optionalText(value)
-
-  if (!id) {
-    return ""
-  }
-
-  return requireCreativeModeId(id)
-}
-
-function requireCreativeModeId(value) {
-  if (!isCreativeModeId(value)) {
-    throw badRequest("Invalid creative mode")
-  }
-
-  return value
 }
 
 function requireText(value, message) {
@@ -1475,38 +1588,8 @@ function requireResearchContextMode(value) {
   throw badRequest("Research context mode must be none or web")
 }
 
-function buildFinalPrompt({
-  enhancedPrompt,
-  researchContext,
-  aspectRatio,
-  creativeMode,
-}) {
-  const lines = [enhancedPrompt, ""]
-
-  if (researchContext) {
-    lines.push("Research context:")
-    lines.push(researchContext)
-    lines.push("")
-    lines.push(
-      "Research context rules:",
-      "- Use this only as factual grounding for named real-world subjects.",
-      "- Do not treat it as image composition, framing, lighting, camera, mood, style, or color direction.",
-      "- If the user prompt conflicts with this context, prefer the user's prompt."
-    )
-    lines.push("")
-  }
-
-  if (creativeMode?.basePromptDetails) {
-    lines.push(`Creative mode (${creativeMode.name}):`)
-    lines.push(creativeMode.basePromptDetails)
-    if (creativeMode.creativeDirection) {
-      lines.push(creativeMode.creativeDirection)
-    }
-    lines.push("")
-  }
-
-  lines.push("Generation requirements:", `- Aspect ratio: ${aspectRatio}`)
-  return lines.join("\n")
+function buildFinalPrompt({ enhancedPrompt }) {
+  return enhancedPrompt
 }
 
 function extractExplicitTitleFromPrompt(prompt) {

@@ -5,7 +5,7 @@ export type ThemeMode = "light" | "dark"
 export const defaultThemeMode: ThemeMode = "dark"
 export const themeStorageKey = "framebook-theme"
 
-export function isThemeMode(value: string | null): value is ThemeMode {
+function isThemeMode(value: string | null): value is ThemeMode {
   return value === "light" || value === "dark"
 }
 

@@ -19,7 +19,7 @@ export const referenceImageMessages = {
   dropUnsupportedTitle: "Image not supported",
   dropSupportedTitle: "Add reference image",
   dropUnsupportedBody: `Drop a PNG, JPEG, or WebP image up to ${referenceImageConfig.maxSizeLabel}.`,
-  dropSupportedBody: "Drop it anywhere to attach it to the prompt.",
+  dropSupportedBody: "Drop it anywhere to add it.",
 } as const
 
 export function isReferenceImageFile(file: File) {

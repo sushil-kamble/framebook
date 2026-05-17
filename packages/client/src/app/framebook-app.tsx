@@ -3,9 +3,12 @@ import { X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
+  clearNewTopicDraft,
   defaultTopicDraft,
   draftFromTopic,
+  loadNewTopicDraft,
   normalizeTopicDraft,
+  saveNewTopicDraft,
 } from "@app/lib/topic-form"
 import { framebookApi } from "@shared/api/framebook"
 import { Sidebar } from "./components/app-sidebar"
@@ -50,7 +53,11 @@ import {
 } from "./lib/utils"
 import { useThemeMode } from "./lib/theme"
 import { copyTextToClipboard } from "./lib/share"
-import type { FramebookAppProps, Screen } from "./lib/types"
+import type {
+  FramebookAppProps,
+  PromptReferenceImageAttachment,
+  Screen,
+} from "./lib/types"
 import type { TopicDraft } from "@app/lib/topic-form"
 import type {
   AspectRatio,
@@ -59,12 +66,6 @@ import type {
   ImageRecord,
   TopicSummary,
 } from "@framebook/shared/contracts/framebook"
-
-export interface ReferenceImageAttachment {
-  id: string
-  file: File
-  previewUrl: string
-}
 
 interface PendingGenerationRequest {
   id: string
@@ -99,18 +100,20 @@ export function FramebookApp({
     topicId?: string
     topicName?: string
     draft: TopicDraft
+    referenceImages?: TopicSummary["referenceImages"]
   } | null>(null)
   const [userPrompt, setUserPrompt] = useState("")
   const [generationPrompt, setGenerationPrompt] = useState("")
   const [promptMode, setPromptMode] = useState<"user" | "generation">("user")
   const [researchContextEnabled, setResearchContextEnabled] = useState(false)
-  const [referenceImages, setReferenceImages] = useState<
-    Array<ReferenceImageAttachment>
+  const [promptReferenceImages, setPromptReferenceImages] = useState<
+    Array<PromptReferenceImageAttachment>
   >([])
-  const referenceImagesRef = useRef(referenceImages)
+  const promptReferenceImagesRef = useRef(promptReferenceImages)
+  const [excludedTopicReferenceImageIds, setExcludedTopicReferenceImageIds] =
+    useState<Set<string>>(() => new Set())
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<AspectRatio>("16:9")
-  const [selectedCreativeModeId, setSelectedCreativeModeId] = useState("")
   const [selectedVersionCount, setSelectedVersionCount] =
     useState<GenerationVersionCount>(1)
   const [favoriteOnly, setFavoriteOnly] = useState(false)
@@ -137,10 +140,27 @@ export function FramebookApp({
   const [imageDetailBackScreen, setImageDetailBackScreen] =
     useState<Screen | null>(null)
 
+  const getNewTopicDraft = useCallback(() => {
+    if (typeof window === "undefined") {
+      return defaultTopicDraft
+    }
+
+    return loadNewTopicDraft(window.sessionStorage)
+  }, [])
+
   const activeTopic = useMemo(
     () => topics.find((topic) => topic.id === activeTopicId) ?? null,
     [activeTopicId, topics]
   )
+  const selectedTopicReferenceImages = useMemo(() => {
+    if (!activeTopic) {
+      return []
+    }
+
+    return activeTopic.referenceImages.filter(
+      (referenceImage) => !excludedTopicReferenceImageIds.has(referenceImage.id)
+    )
+  }, [activeTopic, excludedTopicReferenceImageIds])
   const previewImage = useMemo(
     () =>
       images.find((image) => image.id === previewImageId) ??
@@ -238,20 +258,31 @@ export function FramebookApp({
   const isImmersiveScreen = screen === "settings" || screen === "topic-editor"
 
   useEffect(() => {
-    referenceImagesRef.current = referenceImages
-  }, [referenceImages])
-
-  useEffect(() => {
     jobsRef.current = jobs
   }, [jobs])
 
   useEffect(() => {
+    promptReferenceImagesRef.current = promptReferenceImages
+  }, [promptReferenceImages])
+
+  useEffect(() => {
     return () => {
-      for (const referenceImage of referenceImagesRef.current) {
+      for (const referenceImage of promptReferenceImagesRef.current) {
         revokeObjectUrl(referenceImage.previewUrl)
       }
     }
   }, [])
+
+  useEffect(() => {
+    setExcludedTopicReferenceImageIds(new Set())
+    setPromptReferenceImages((current) => {
+      for (const referenceImage of current) {
+        revokeObjectUrl(referenceImage.previewUrl)
+      }
+
+      return []
+    })
+  }, [activeTopicId])
 
   const loadTopics = useCallback(async () => {
     setIsLoadingTopics(true)
@@ -362,9 +393,9 @@ export function FramebookApp({
     }
 
     if (currentRouteScreen === "topic-editor" && !currentRouteTopicId) {
-      setTopicEditor({ mode: "create", draft: defaultTopicDraft })
+      setTopicEditor({ mode: "create", draft: getNewTopicDraft() })
     }
-  }, [currentRouteScreen, currentRouteTopicId])
+  }, [currentRouteScreen, currentRouteTopicId, getNewTopicDraft])
 
   useEffect(() => {
     if (currentRouteScreen !== "topic-editor" || !currentRouteTopicId) {
@@ -383,25 +414,18 @@ export function FramebookApp({
       topicId: topic.id,
       topicName: topic.name,
       draft: draftFromTopic(topic),
+      referenceImages: topic.referenceImages,
     })
   }, [currentRouteScreen, currentRouteTopicId, topics])
 
   const activeTopicDefaultAspectRatio = activeTopic?.defaultAspectRatio
-  const activeTopicCreativeModeId = activeTopic?.creativeModeId
   useEffect(() => {
     if (!activeTopicId || !activeTopicDefaultAspectRatio) {
       return
     }
     setSelectedAspectRatio(activeTopicDefaultAspectRatio)
-    setSelectedCreativeModeId(activeTopicCreativeModeId || "")
     void loadImages(activeTopicId, favoriteOnly)
-  }, [
-    activeTopicCreativeModeId,
-    activeTopicDefaultAspectRatio,
-    activeTopicId,
-    favoriteOnly,
-    loadImages,
-  ])
+  }, [activeTopicDefaultAspectRatio, activeTopicId, favoriteOnly, loadImages])
 
   useEffect(() => {
     if (screen === "starred" || screen === "gallery") {
@@ -558,7 +582,6 @@ export function FramebookApp({
         setDetailImage(response.image)
         setActiveTopicId(response.image.topicId)
         setSelectedAspectRatio(response.image.aspectRatio)
-        setSelectedCreativeModeId(response.image.creativeMode.id)
       } catch (requestError) {
         if (!cancelled) {
           setError(errorMessage(requestError))
@@ -607,13 +630,12 @@ export function FramebookApp({
   const openTopic = (topic: TopicSummary, nextScreen: Screen = "topic") => {
     setActiveTopicId(topic.id)
     setSelectedAspectRatio(topic.defaultAspectRatio)
-    setSelectedCreativeModeId(topic.creativeModeId || "")
     setError(null)
     navigateTo(nextScreen, topic.id)
   }
 
   const startCreateTopic = () => {
-    setTopicEditor({ mode: "create", draft: defaultTopicDraft })
+    setTopicEditor({ mode: "create", draft: getNewTopicDraft() })
     setError(null)
     navigateTo("topic-editor", null)
   }
@@ -624,17 +646,53 @@ export function FramebookApp({
       topicId: topic.id,
       topicName: topic.name,
       draft: draftFromTopic(topic),
+      referenceImages: topic.referenceImages,
     })
     setError(null)
     navigateTo("topic-editor", topic.id)
   }
 
-  const submitTopic = async (draft: TopicDraft) => {
+  const applyTopicUpdate = (topic: TopicSummary) => {
+    setTopics((current) =>
+      current.some((candidate) => candidate.id === topic.id)
+        ? current.map((candidate) =>
+            candidate.id === topic.id ? topic : candidate
+          )
+        : [topic, ...current]
+    )
+    setTopicEditor((current) =>
+      current?.topicId === topic.id
+        ? {
+            ...current,
+            topicName: topic.name,
+            draft: draftFromTopic(topic),
+            referenceImages: topic.referenceImages,
+          }
+        : current
+    )
+  }
+
+  const submitTopic = async (
+    draft: TopicDraft,
+    referenceFiles: Array<File> = []
+  ) => {
     const normalized = normalizeTopicDraft(draft)
     const isEdit = topicEditor?.mode === "edit" && topicEditor.topicId
-    const response = isEdit
+    let response = isEdit
       ? await framebookApi.updateTopic(topicEditor.topicId!, normalized)
       : await framebookApi.createTopic(normalized)
+
+    const validReferenceFiles = referenceImageFiles(referenceFiles)
+    if (validReferenceFiles.length > 0) {
+      response = await framebookApi.addTopicReferenceImages(
+        response.topic.id,
+        validReferenceFiles
+      )
+    }
+
+    if (!isEdit && typeof window !== "undefined") {
+      clearNewTopicDraft(window.sessionStorage)
+    }
 
     await loadTopics()
     setTopicEditor(null)
@@ -642,6 +700,36 @@ export function FramebookApp({
     toast.success(isEdit ? "Topic updated" : "Topic created", {
       description: response.topic.name,
     })
+  }
+
+  const addTopicReferenceImages = async (
+    topicId: string,
+    files: Array<File>
+  ) => {
+    const validFiles = referenceImageFiles(files)
+
+    if (validFiles.length === 0) {
+      return
+    }
+
+    const response = await framebookApi.addTopicReferenceImages(
+      topicId,
+      validFiles
+    )
+    applyTopicUpdate(response.topic)
+    toast.success("Reference images added")
+  }
+
+  const removeTopicReferenceImage = async (
+    topicId: string,
+    referenceImageId: string
+  ) => {
+    const response = await framebookApi.deleteTopicReferenceImage(
+      topicId,
+      referenceImageId
+    )
+    applyTopicUpdate(response.topic)
+    toast.success("Reference image removed")
   }
 
   const archiveActiveTopic = async () => {
@@ -757,7 +845,7 @@ export function FramebookApp({
     setUserPrompt(value)
   }
 
-  const addReferenceImages = (files: Array<File>) => {
+  const referenceImageFiles = (files: Array<File>) => {
     const validFiles: Array<File> = []
 
     for (const file of files) {
@@ -774,12 +862,21 @@ export function FramebookApp({
       validFiles.push(file)
     }
 
+    return validFiles
+  }
+
+  const addPromptReferenceImages = (files: Array<File>) => {
+    const validFiles = referenceImageFiles(files)
+
     if (validFiles.length === 0) {
       return
     }
 
-    setReferenceImages((current) => {
-      const availableSlots = referenceImageConfig.maxFiles - current.length
+    setPromptReferenceImages((current) => {
+      const availableSlots =
+        referenceImageConfig.maxFiles -
+        selectedTopicReferenceImages.length -
+        current.length
 
       if (availableSlots <= 0) {
         toast.error(referenceImageMessages.tooMany)
@@ -790,7 +887,7 @@ export function FramebookApp({
         toast.error(referenceImageMessages.tooMany)
       }
 
-      const nextAttachments = validFiles
+      const nextReferenceImages = validFiles
         .slice(0, availableSlots)
         .map((file) => ({
           id: createClientId(),
@@ -798,12 +895,12 @@ export function FramebookApp({
           previewUrl: createObjectUrl(file),
         }))
 
-      return [...current, ...nextAttachments]
+      return [...current, ...nextReferenceImages]
     })
   }
 
-  const removeReferenceImage = (referenceImageId: string) => {
-    setReferenceImages((current) => {
+  const removePromptReferenceImage = (referenceImageId: string) => {
+    setPromptReferenceImages((current) => {
       const removed = current.find(
         (referenceImage) => referenceImage.id === referenceImageId
       )
@@ -818,8 +915,21 @@ export function FramebookApp({
     })
   }
 
-  const clearReferenceImages = () => {
-    setReferenceImages((current) => {
+  const removeSelectedTopicReferenceImage = (referenceImageId: string) => {
+    setExcludedTopicReferenceImageIds((current) => {
+      if (current.has(referenceImageId)) {
+        return current
+      }
+
+      const next = new Set(current)
+      next.add(referenceImageId)
+      return next
+    })
+  }
+
+  const resetPromptReferences = () => {
+    setExcludedTopicReferenceImageIds(new Set())
+    setPromptReferenceImages((current) => {
       for (const referenceImage of current) {
         revokeObjectUrl(referenceImage.previewUrl)
       }
@@ -845,7 +955,10 @@ export function FramebookApp({
     const submittedUserPrompt = userPrompt.trim() || submittedPromptValue.trim()
     const submittedGenerationPrompt =
       promptMode === "generation" ? generationPrompt.trim() : ""
-    const submittedReferenceFiles = referenceImages.map(
+    const submittedTopicReferenceImageIds = selectedTopicReferenceImages.map(
+      (referenceImage) => referenceImage.id
+    )
+    const submittedPromptReferenceFiles = promptReferenceImages.map(
       (referenceImage) => referenceImage.file
     )
 
@@ -861,7 +974,7 @@ export function FramebookApp({
     setUserPrompt("")
     setGenerationPrompt("")
     setPromptMode("user")
-    clearReferenceImages()
+    resetPromptReferences()
     toast(generationStartedToastMessage(selectedVersionCount), {
       id: generationToastId,
     })
@@ -873,10 +986,10 @@ export function FramebookApp({
           enhancedPrompt: submittedGenerationPrompt,
           aspectRatio: selectedAspectRatio,
           versionCount: selectedVersionCount,
-          creativeModeId: selectedCreativeModeId,
           contextMode: researchContextEnabled ? "web" : "none",
+          topicReferenceImageIds: submittedTopicReferenceImageIds,
         },
-        submittedReferenceFiles
+        submittedPromptReferenceFiles
       )
       const responseJobs = (
         response as { job: GenerationJob; jobs?: Array<GenerationJob> }
@@ -1060,6 +1173,14 @@ export function FramebookApp({
                 onTopicClick={() => {
                   navigateTo("topic", topicEditor.topicId ?? activeTopicId)
                 }}
+                onDraftChange={(draft) => {
+                  if (typeof window !== "undefined") {
+                    saveNewTopicDraft(window.sessionStorage, draft)
+                  }
+                }}
+                onReferenceImageError={showReferenceImageError}
+                onAddReferenceImages={addTopicReferenceImages}
+                onRemoveReferenceImage={removeTopicReferenceImage}
                 onSubmit={submitTopic}
               />
             ) : null}
@@ -1073,9 +1194,9 @@ export function FramebookApp({
                 promptValue={promptValue}
                 originalPromptValue={userPrompt}
                 isOptimizedPrompt={promptMode === "generation"}
-                referenceImages={referenceImages}
+                selectedTopicReferenceImages={selectedTopicReferenceImages}
+                promptReferenceImages={promptReferenceImages}
                 selectedAspectRatio={selectedAspectRatio}
-                selectedCreativeModeId={selectedCreativeModeId}
                 selectedVersionCount={selectedVersionCount}
                 researchContextEnabled={researchContextEnabled}
                 creatingGenerationVersionCount={
@@ -1092,11 +1213,13 @@ export function FramebookApp({
                 onEditTopic={() => startEditTopic(activeTopic)}
                 onArchiveTopic={archiveActiveTopic}
                 onPromptChange={updatePrompt}
-                onAddReferenceImages={addReferenceImages}
-                onRemoveReferenceImage={removeReferenceImage}
+                onAddPromptReferenceImages={addPromptReferenceImages}
+                onRemovePromptReferenceImage={removePromptReferenceImage}
+                onRemoveSelectedTopicReferenceImage={
+                  removeSelectedTopicReferenceImage
+                }
                 onReferenceImageError={showReferenceImageError}
                 onAspectRatioChange={setSelectedAspectRatio}
-                onCreativeModeChange={setSelectedCreativeModeId}
                 onVersionCountChange={setSelectedVersionCount}
                 onResearchContextChange={setResearchContextEnabled}
                 onArchiveImage={archiveImage}

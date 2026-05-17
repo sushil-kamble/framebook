@@ -237,9 +237,9 @@ export function SettingsScreen({
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-semibold">{topic.name}</div>
-                      {topic.description ? (
+                      {topic.basePrompt ? (
                         <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                          {topic.description}
+                          {topic.basePrompt}
                         </p>
                       ) : null}
                       <div className="mt-1.5 flex flex-wrap gap-2.5 text-xs text-muted-foreground/60">
