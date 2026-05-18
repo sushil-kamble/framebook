@@ -617,7 +617,7 @@ function GalleryCanvas(props: {
         ) : null}
 
         {!props.isLoading && (props.images.length > 0 || props.isGenerating) ? (
-          <div className="columns-1 gap-4 [column-fill:balance] sm:columns-2 2xl:columns-3">
+          <div className="grid grid-cols-3 gap-3">
             {props.isGenerating
               ? Array.from(
                   { length: Math.max(1, props.generatingPlaceholderCount) },
@@ -663,12 +663,12 @@ function GalleryImageCard(props: {
 
   return (
     <article
-      className="group relative mb-4 break-inside-avoid overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
+      className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
       {...previewShortcut}
     >
       <button
         type="button"
-        className="block w-full bg-muted text-left"
+        className="block size-full text-left"
         onClick={() => {
           props.onViewImageDetails(props.image)
         }}
@@ -688,15 +688,15 @@ function GalleryImageCard(props: {
           loading="lazy"
           decoding="async"
           fetchPriority={props.fetchPriority}
-          className="block h-auto w-full object-contain"
+          className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
         />
       </button>
 
-      <div className="border-t border-border/50 bg-card/86 p-3">
-        <div className="line-clamp-1 text-xs font-semibold text-foreground">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-10">
+        <div className="line-clamp-1 text-xs font-semibold text-white">
           {props.image.title}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
           <span>{props.image.aspectRatio}</span>
           <span>·</span>
           <span>{formatDate(props.image.createdAt)}</span>
@@ -758,7 +758,7 @@ function GalleryImageCard(props: {
 function GeneratingImageCard() {
   return (
     <article
-      className="generating-image-skeleton relative mb-4 min-h-80 break-inside-avoid overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
+      className="generating-image-skeleton relative aspect-4/3 overflow-hidden rounded-2xl border border-ring/20 bg-muted shadow-sm"
       aria-label="Generating image"
     >
       <div className="absolute inset-0 framer-grid opacity-10" />
@@ -775,14 +775,11 @@ function GeneratingImageCard() {
 
 function GallerySkeleton() {
   return (
-    <div
-      className="columns-1 gap-4 sm:columns-2 2xl:columns-3"
-      aria-label="Loading gallery"
-    >
+    <div className="grid grid-cols-3 gap-3" aria-label="Loading gallery">
       {["first", "second", "third", "fourth", "fifth", "sixth"].map((key) => (
         <div
           key={key}
-          className="mb-4 h-80 break-inside-avoid overflow-hidden rounded-2xl border border-border/50 bg-muted odd:h-96"
+          className="aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted"
         >
           <Skeleton className="size-full rounded-none" />
         </div>

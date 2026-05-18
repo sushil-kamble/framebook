@@ -54,7 +54,7 @@ export function StarredScreen({
       ) : null}
 
       {!isLoading && images.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="columns-1 gap-4 [column-fill:balance] md:columns-2">
           {images.map((image, index) => {
             return (
               <StarredImageCard
@@ -87,12 +87,12 @@ function StarredImageCard(props: {
 
   return (
     <article
-      className="group relative aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
+      className="group relative mb-4 break-inside-avoid overflow-hidden rounded-2xl border border-border/50 bg-muted shadow-sm transition-all duration-200 hover:border-ring/30 hover:shadow-md hover:shadow-black/15 dark:hover:border-white/12 dark:hover:shadow-black/30"
       {...previewShortcut}
     >
       <button
         type="button"
-        className="block size-full text-left"
+        className="block w-full bg-muted text-left"
         onClick={() => props.onViewImageDetails(props.image)}
         aria-label={`View details for ${props.image.title}`}
       >
@@ -110,15 +110,15 @@ function StarredImageCard(props: {
           loading="lazy"
           decoding="async"
           fetchPriority={props.fetchPriority}
-          className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
+          className="block h-auto w-full object-contain"
         />
       </button>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/50 to-transparent p-3 pt-14">
-        <div className="line-clamp-1 text-xs font-semibold text-white">
+      <div className="border-t border-border/50 bg-card/86 p-3">
+        <div className="line-clamp-1 text-xs font-semibold text-foreground">
           {props.image.title}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/55">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span className="line-clamp-1">{props.image.topicSnapshot.name}</span>
           <span>·</span>
           <span>{formatDate(props.image.createdAt)}</span>
@@ -157,11 +157,14 @@ function StarredImageCard(props: {
 
 function StarredGridSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3" aria-label="Loading starred images">
+    <div
+      className="columns-1 gap-4 md:columns-2"
+      aria-label="Loading starred images"
+    >
       {["first", "second"].map((key) => (
         <div
           key={key}
-          className="aspect-4/3 overflow-hidden rounded-2xl border border-border/50 bg-muted"
+          className="mb-4 h-80 break-inside-avoid overflow-hidden rounded-2xl border border-border/50 bg-muted odd:h-96"
         >
           <Skeleton className="size-full rounded-none" />
         </div>

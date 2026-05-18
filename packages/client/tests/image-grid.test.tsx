@@ -33,12 +33,14 @@ describe("optimized image grids", () => {
     expect(image.getAttribute("srcset")).toContain(
       "/api/images/image-1/variants/320 320w"
     )
-    expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 50vw, 50vw")
+    expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 50vw, 100vw")
     expect(image.getAttribute("loading")).toBe("lazy")
     expect(image.getAttribute("decoding")).toBe("async")
     expect(image.getAttribute("width")).toBe("1200")
     expect(image.getAttribute("height")).toBe("900")
     expect(image.getAttribute("fetchpriority")).toBe("high")
+    expect(image.className).toContain("object-contain")
+    expect(image.closest("article")?.className).toContain("break-inside-avoid")
 
     fireEvent.mouseEnter(image.closest("article")!)
     fireEvent.keyDown(window, { key: "v" })
@@ -92,16 +94,12 @@ describe("optimized image grids", () => {
     expect(image.getAttribute("srcset")).toContain(
       "/api/images/image-1/variants/1024 1024w"
     )
-    expect(image.getAttribute("sizes")).toBe(
-      "(min-width: 1536px) 33vw, (min-width: 768px) 50vw, 100vw"
-    )
+    expect(image.getAttribute("sizes")).toBe("(min-width: 1024px) 33vw, 33vw")
     expect(image.getAttribute("loading")).toBe("lazy")
     expect(image.getAttribute("decoding")).toBe("async")
     expect(image.getAttribute("width")).toBe("1200")
     expect(image.getAttribute("height")).toBe("900")
     expect(image.getAttribute("fetchpriority")).toBe("high")
-    expect(image.className).toContain("object-contain")
-    expect(image.closest("article")?.className).toContain("break-inside-avoid")
 
     fireEvent.mouseEnter(image.closest("article")!)
     fireEvent.keyDown(window, { key: "v" })
